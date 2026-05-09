@@ -22,6 +22,56 @@ function userRef(uid) {
   return doc(db, 'users', uid);
 }
 
+function releaseKindFromTrack(track) {
+  const totalTracks = Number(track?.albumTotalTracks || 0);
+  if (track?.albumType === 'album') return 'album';
+  if (totalTracks >= 4 && totalTracks <= 6) return 'ep';
+  return 'single';
+}
+
+function buildReleaseRankings(topTracks = [], kind = 'album') {
+  const releases = new Map();
+  topTracks.forEach((track, index) => {
+    if (!track.albumName || releaseKindFromTrack(track) !== kind) return;
+    const id = track.albumId || track.albumName;
+    const current = releases.get(id) || {
+      id,
+      name: track.albumName,
+      imageUrl: track.imageUrl,
+      score: 0,
+      tracks: 0,
+      artists: new Set(),
+      kind,
+    };
+    current.score += Math.max(1, 12 - index);
+    current.tracks += 1;
+    (track.artists || []).forEach((artist) => current.artists.add(artist.name));
+    releases.set(id, current);
+  });
+
+  return Array.from(releases.values())
+    .map((release) => ({ ...release, artists: Array.from(release.artists).slice(0, 2).join(', ') }))
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, 5);
+}
+
+function previousRankMap(items = []) {
+  return new Map(items.map((item, index) => [item.id || item.name, index + 1]));
+}
+
+function addMovement(items = [], previousRanks) {
+  return items.map((item, index) => {
+    const previousRank = previousRanks.get(item.id || item.name) || null;
+    const currentRank = index + 1;
+    return {
+      ...item,
+      rank: currentRank,
+      previousRank,
+      rankChange: previousRank ? previousRank - currentRank : null,
+    };
+  });
+}
+
 export async function saveSpotifyTokens(uid, tokenJson) {
   const expiresInSec = tokenJson.expires_in || 3600;
   const expiresAt = Date.now() + expiresInSec * 1000 - 60_000;
@@ -49,6 +99,14 @@ export async function getSpotifyTokens(uid) {
 }
 
 export async function savePublicProfile(uid, firebaseUserEmail, bundle) {
+  const existingSnap = await getDoc(userRef(uid));
+  const existingSpotify = snapshotExists(existingSnap) ? existingSnap.data()?.spotify : null;
+  const albumRankings = buildReleaseRankings(bundle.topTracks, 'album');
+  const epRankings = buildReleaseRankings(bundle.topTracks, 'ep');
+  const singleRankings = buildReleaseRankings(bundle.topTracks, 'single');
+  const topTracks = addMovement(bundle.topTracks, previousRankMap(existingSpotify?.topTracks || []));
+  const albumsWithMovement = addMovement(albumRankings, previousRankMap(existingSpotify?.albumRankings || []));
+
   await setDoc(
     userRef(uid),
     {
@@ -63,7 +121,10 @@ export async function savePublicProfile(uid, firebaseUserEmail, bundle) {
         displayName: bundle.displayName,
         imageUrl: bundle.imageUrl,
         topArtists: bundle.topArtists,
-        topTracks: bundle.topTracks,
+        topTracks,
+        albumRankings: albumsWithMovement,
+        epRankings,
+        singleRankings,
         genres: bundle.genres,
         recentlyPlayed: bundle.recentlyPlayed,
         updatedAt: serverTimestamp(),

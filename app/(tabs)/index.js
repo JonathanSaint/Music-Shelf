@@ -25,8 +25,12 @@ function getAlbumRankings(topTracks = []) {
   const albums = new Map();
   topTracks.forEach((track, index) => {
     if (!track.albumName) return;
-    const current = albums.get(track.albumName) || {
-      id: track.albumName,
+    const totalTracks = Number(track.albumTotalTracks || 0);
+    const isAlbum = track.albumType === 'album' || (!track.albumType && (!totalTracks || totalTracks > 6));
+    if (!isAlbum) return;
+    const id = track.albumId || track.albumName;
+    const current = albums.get(id) || {
+      id,
       name: track.albumName,
       imageUrl: track.imageUrl,
       score: 0,
@@ -36,11 +40,40 @@ function getAlbumRankings(topTracks = []) {
     current.score += Math.max(1, 12 - index);
     current.tracks += 1;
     (track.artists || []).forEach((artist) => current.artists.add(artist.name));
-    albums.set(track.albumName, current);
+    albums.set(id, current);
   });
 
   return Array.from(albums.values())
     .map((album) => ({ ...album, artists: Array.from(album.artists).slice(0, 2).join(', ') }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+}
+
+function getReleaseRankings(topTracks = [], kind) {
+  const releases = new Map();
+  topTracks.forEach((track, index) => {
+    if (!track.albumName) return;
+    const totalTracks = Number(track.albumTotalTracks || 0);
+    if (!track.albumType && !totalTracks) return;
+    const releaseKind = totalTracks >= 4 && totalTracks <= 6 ? 'ep' : 'single';
+    if (track.albumType === 'album' || releaseKind !== kind) return;
+    const id = track.albumId || track.albumName;
+    const current = releases.get(id) || {
+      id,
+      name: track.albumName,
+      imageUrl: track.imageUrl,
+      score: 0,
+      tracks: 0,
+      artists: new Set(),
+    };
+    current.score += Math.max(1, 12 - index);
+    current.tracks += 1;
+    (track.artists || []).forEach((artist) => current.artists.add(artist.name));
+    releases.set(id, current);
+  });
+
+  return Array.from(releases.values())
+    .map((release) => ({ ...release, artists: Array.from(release.artists).slice(0, 2).join(', ') }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
 }
@@ -54,7 +87,26 @@ function RankBadge({ rank }) {
   );
 }
 
-function RankedRow({ item, rank, subtitle, meta }) {
+function RankMovement({ change }) {
+  if (change === null || change === undefined) {
+    return (
+      <View style={[styles.movementBadge, styles.movementFlat]}>
+        <Ionicons name="remove" color={MUTED} size={12} />
+      </View>
+    );
+  }
+
+  const isUp = change > 0;
+  const isDown = change < 0;
+  return (
+    <View style={[styles.movementBadge, isUp && styles.movementUp, isDown && styles.movementDown]}>
+      <Ionicons name={isUp ? 'arrow-up' : isDown ? 'arrow-down' : 'remove'} color={isUp ? GREEN : isDown ? PINK : MUTED} size={12} />
+      {!!change && <Text style={[styles.movementText, { color: isUp ? GREEN : PINK }]}>{Math.abs(change)}</Text>}
+    </View>
+  );
+}
+
+function RankedRow({ item, rank, subtitle, meta, showMovement = false }) {
   return (
     <View style={styles.rankRow}>
       <RankBadge rank={rank} />
@@ -63,8 +115,32 @@ function RankedRow({ item, rank, subtitle, meta }) {
         <Text numberOfLines={1} style={styles.rankTitle}>{item.name}</Text>
         <Text numberOfLines={1} style={styles.rankSubtitle}>{subtitle}</Text>
       </View>
+      {showMovement && <RankMovement change={item.rankChange} />}
       {!!meta && <Text style={styles.meta}>{meta}</Text>}
     </View>
+  );
+}
+
+function ReleaseBoard({ title, tag, releases }) {
+  if (!releases.length) return null;
+  return (
+    <>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={styles.sectionTag}>{tag}</Text>
+      </View>
+      <View style={styles.panel}>
+        {releases.map((release, index) => (
+          <RankedRow
+            key={release.id || `${release.name}-${index}`}
+            item={release}
+            rank={index + 1}
+            subtitle={release.artists || `${release.tracks} tracks`}
+            meta={`${release.score} pts`}
+          />
+        ))}
+      </View>
+    </>
   );
 }
 
@@ -96,7 +172,9 @@ export default function HomeTab() {
 
   const spotify = profile?.spotify;
   const topTracks = spotify?.topTracks || [];
-  const albums = getAlbumRankings(topTracks);
+  const albums = spotify?.albumRankings || getAlbumRankings(topTracks);
+  const eps = spotify?.epRankings || getReleaseRankings(topTracks, 'ep');
+  const singles = spotify?.singleRankings || getReleaseRankings(topTracks, 'single');
   const topGenres = spotify?.genres?.slice(0, 4) || [];
 
   return (
@@ -128,8 +206,8 @@ export default function HomeTab() {
               <Text style={styles.scoreLabel}>ranked songs</Text>
             </View>
             <View style={styles.scoreCard}>
-              <Text style={styles.scoreValue}>{albums.length}</Text>
-              <Text style={styles.scoreLabel}>hot albums</Text>
+              <Text style={styles.scoreValue}>{albums.length + eps.length + singles.length}</Text>
+              <Text style={styles.scoreLabel}>ranked releases</Text>
             </View>
             <View style={styles.scoreCard}>
               <Text style={styles.scoreValue}>{spotify.genres?.length || 0}</Text>
@@ -153,7 +231,7 @@ export default function HomeTab() {
           </View>
           <View style={styles.panel}>
             {topTracks.slice(0, 5).map((track, index) => (
-              <RankedRow key={track.id || `${track.name}-${index}`} item={track} rank={index + 1} subtitle={artistLine(track)} meta={index === 0 ? 'crown' : null} />
+              <RankedRow key={track.id || `${track.name}-${index}`} item={track} rank={index + 1} subtitle={artistLine(track)} meta={index === 0 ? 'crown' : null} showMovement />
             ))}
           </View>
 
@@ -164,13 +242,19 @@ export default function HomeTab() {
           <View style={styles.albumGrid}>
             {albums.map((album, index) => (
               <View key={album.id} style={styles.albumCard}>
-                <RankBadge rank={index + 1} />
+                <View style={styles.albumCardTop}>
+                  <RankBadge rank={index + 1} />
+                  <RankMovement change={album.rankChange} />
+                </View>
                 {album.imageUrl ? <Image source={{ uri: album.imageUrl }} style={styles.albumArt} /> : <View style={[styles.albumArt, styles.coverFallback]} />}
                 <Text numberOfLines={2} style={styles.albumName}>{album.name}</Text>
                 <Text numberOfLines={1} style={styles.albumArtist}>{album.artists || `${album.tracks} tracks`}</Text>
               </View>
             ))}
           </View>
+
+          <ReleaseBoard title="Top EPs" tag="from top tracks" releases={eps} />
+          <ReleaseBoard title="Top singles" tag="from top tracks" releases={singles} />
         </>
       )}
     </ScrollView>
@@ -204,6 +288,11 @@ const styles = StyleSheet.create({
   rankRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderBottomWidth: 1, borderBottomColor: '#1A2230' },
   rankBadge: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   rankText: { fontSize: 13, fontWeight: '900' },
+  movementBadge: { minWidth: 28, height: 24, borderRadius: 12, paddingHorizontal: 6, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
+  movementUp: { backgroundColor: '#102516', borderColor: '#285C38' },
+  movementDown: { backgroundColor: '#361326', borderColor: '#71304F' },
+  movementFlat: { backgroundColor: '#1A2230', borderColor: BORDER },
+  movementText: { fontSize: 11, fontWeight: '900' },
   cover: { width: 50, height: 50, borderRadius: 6 },
   coverFallback: { backgroundColor: '#263142' },
   rankCopy: { flex: 1, minWidth: 0 },
@@ -212,6 +301,7 @@ const styles = StyleSheet.create({
   meta: { color: GOLD, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   albumGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   albumCard: { width: '48%', backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 10, gap: 8 },
+  albumCardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   albumArt: { width: '100%', aspectRatio: 1, borderRadius: 6 },
   albumName: { color: TXT, fontWeight: '900', minHeight: 38 },
   albumArtist: { color: MUTED, fontSize: 12 },
