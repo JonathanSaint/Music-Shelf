@@ -27,6 +27,7 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
   }, [onError]);
 
   const cid = clientId();
+  const hasClientId = !!cid && cid !== 'missing-client-id';
 
   const [request, response, promptAsync] = useAuthRequest(
     {
@@ -94,10 +95,12 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
       errorRef.current?.(new Error('Set EXPO_PUBLIC_SPOTIFY_CLIENT_ID'));
       return { type: 'error' };
     }
-    return promptAsync();
+    return promptAsync({
+      preferEphemeralSession: false,
+    });
   }, [promptAsync]);
 
-  const ready = !!request && !!cid && cid !== 'missing-client-id';
+  const ready = !!request && hasClientId;
 
-  return { connect, ready, loadingRequest: !request, redirectUri };
+  return { connect, ready, hasClientId, loadingRequest: !request, redirectUri };
 }

@@ -1,26 +1,219 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
+import { getPublicProfile } from '../../services/spotifyFirestore';
 
-export default function HomeTab() {
-  const { user } = useAuth();
+const BG = '#080B10';
+const PANEL = '#101722';
+const PANEL_2 = '#151D2A';
+const BORDER = '#263142';
+const TXT = '#F2F6FA';
+const MUTED = '#9AA4B2';
+const GREEN = '#69E58D';
+const BLUE = '#7AA7FF';
+const PINK = '#FF7AB6';
+const GOLD = '#FFD166';
 
+function artistLine(track) {
+  return (track?.artists || []).map((x) => x.name).join(', ') || track?.albumName || 'Unknown artist';
+}
+
+function getAlbumRankings(topTracks = []) {
+  const albums = new Map();
+  topTracks.forEach((track, index) => {
+    if (!track.albumName) return;
+    const current = albums.get(track.albumName) || {
+      id: track.albumName,
+      name: track.albumName,
+      imageUrl: track.imageUrl,
+      score: 0,
+      tracks: 0,
+      artists: new Set(),
+    };
+    current.score += Math.max(1, 12 - index);
+    current.tracks += 1;
+    (track.artists || []).forEach((artist) => current.artists.add(artist.name));
+    albums.set(track.albumName, current);
+  });
+
+  return Array.from(albums.values())
+    .map((album) => ({ ...album, artists: Array.from(album.artists).slice(0, 2).join(', ') }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+}
+
+function RankBadge({ rank }) {
+  const colors = rank === 1 ? [GOLD, '#392C08'] : rank === 2 ? [BLUE, '#101E3D'] : rank === 3 ? [PINK, '#361326'] : [GREEN, '#102516'];
   return (
-    <View style={styles.root}>
-      <Text style={styles.h1}>Feed</Text>
-      <View style={styles.card}>
-        <Text style={styles.p}>Placeholder feed for MVP.</Text>
-        <Text style={styles.muted}>Signed in as {user?.email || 'unknown'}</Text>
-      </View>
+    <View style={[styles.rankBadge, { backgroundColor: colors[1], borderColor: colors[0] }]}>
+      <Text style={[styles.rankText, { color: colors[0] }]}>#{rank}</Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0B0F14', padding: 16, gap: 12 },
-  h1: { color: '#E6EDF3', fontSize: 22, fontWeight: '800' },
-  card: { backgroundColor: '#111826', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#1F2A3A', gap: 6 },
-  p: { color: '#E6EDF3' },
-  muted: { color: '#9AA4B2' },
-});
+function RankedRow({ item, rank, subtitle, meta }) {
+  return (
+    <View style={styles.rankRow}>
+      <RankBadge rank={rank} />
+      {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.cover} /> : <View style={[styles.cover, styles.coverFallback]} />}
+      <View style={styles.rankCopy}>
+        <Text numberOfLines={1} style={styles.rankTitle}>{item.name}</Text>
+        <Text numberOfLines={1} style={styles.rankSubtitle}>{subtitle}</Text>
+      </View>
+      {!!meta && <Text style={styles.meta}>{meta}</Text>}
+    </View>
+  );
+}
 
+export default function HomeTab() {
+  const { user } = useAuth();
+  const [profile, setProfile] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!user?.uid) {
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      try {
+        const data = await getPublicProfile(user.uid);
+        if (!cancelled) setProfile(data);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
+  const spotify = profile?.spotify;
+  const topTracks = spotify?.topTracks || [];
+  const albums = getAlbumRankings(topTracks);
+  const topGenres = spotify?.genres?.slice(0, 4) || [];
+
+  return (
+    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      <View style={styles.hero}>
+        <View>
+          <Text style={styles.eyebrow}>Music Shelf</Text>
+          <Text style={styles.h1}>Your listening leaderboard</Text>
+        </View>
+        {spotify?.imageUrl ? <Image source={{ uri: spotify.imageUrl }} style={styles.avatar} /> : <View style={[styles.avatar, styles.avatarFallback]} />}
+      </View>
+
+      {loading ? (
+        <ActivityIndicator color={GREEN} style={{ marginTop: 24 }} />
+      ) : !spotify ? (
+        <View style={styles.emptyPanel}>
+          <Ionicons name="musical-notes-outline" color={GREEN} size={30} />
+          <Text style={styles.emptyTitle}>Connect Spotify to unlock your rankings.</Text>
+          <Text style={styles.emptyText}>Your top songs, album board, genres, and recent plays will appear here.</Text>
+          <Pressable onPress={() => router.push('/(tabs)/profile')} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
+            <Text style={styles.ctaText}>Go to Profile</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <View style={styles.scoreGrid}>
+            <View style={styles.scoreCard}>
+              <Text style={styles.scoreValue}>{topTracks.length}</Text>
+              <Text style={styles.scoreLabel}>ranked songs</Text>
+            </View>
+            <View style={styles.scoreCard}>
+              <Text style={styles.scoreValue}>{albums.length}</Text>
+              <Text style={styles.scoreLabel}>hot albums</Text>
+            </View>
+            <View style={styles.scoreCard}>
+              <Text style={styles.scoreValue}>{spotify.genres?.length || 0}</Text>
+              <Text style={styles.scoreLabel}>genre signals</Text>
+            </View>
+          </View>
+
+          {!!topGenres.length && (
+            <View style={styles.genreRail}>
+              {topGenres.map((genre) => (
+                <View key={genre} style={styles.genrePill}>
+                  <Text style={styles.genreText}>{genre}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Top songs</Text>
+            <Text style={styles.sectionTag}>short term</Text>
+          </View>
+          <View style={styles.panel}>
+            {topTracks.slice(0, 5).map((track, index) => (
+              <RankedRow key={track.id || `${track.name}-${index}`} item={track} rank={index + 1} subtitle={artistLine(track)} meta={index === 0 ? 'crown' : null} />
+            ))}
+          </View>
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Album board</Text>
+            <Text style={styles.sectionTag}>from top tracks</Text>
+          </View>
+          <View style={styles.albumGrid}>
+            {albums.map((album, index) => (
+              <View key={album.id} style={styles.albumCard}>
+                <RankBadge rank={index + 1} />
+                {album.imageUrl ? <Image source={{ uri: album.imageUrl }} style={styles.albumArt} /> : <View style={[styles.albumArt, styles.coverFallback]} />}
+                <Text numberOfLines={2} style={styles.albumName}>{album.name}</Text>
+                <Text numberOfLines={1} style={styles.albumArtist}>{album.artists || `${album.tracks} tracks`}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: BG },
+  content: { padding: 16, paddingBottom: 36, gap: 16 },
+  hero: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 14, paddingTop: 4 },
+  eyebrow: { color: GREEN, fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
+  h1: { color: TXT, fontSize: 30, lineHeight: 34, fontWeight: '900', maxWidth: 280 },
+  avatar: { width: 58, height: 58, borderRadius: 29, borderWidth: 2, borderColor: GREEN },
+  avatarFallback: { backgroundColor: PANEL_2 },
+  emptyPanel: { backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 18, gap: 10 },
+  emptyTitle: { color: TXT, fontSize: 18, fontWeight: '900' },
+  emptyText: { color: MUTED, lineHeight: 20 },
+  cta: { alignSelf: 'flex-start', backgroundColor: GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 4 },
+  ctaText: { color: '#07120B', fontWeight: '900' },
+  scoreGrid: { flexDirection: 'row', gap: 10 },
+  scoreCard: { flex: 1, minHeight: 88, backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 12, justifyContent: 'space-between' },
+  scoreValue: { color: TXT, fontSize: 26, fontWeight: '900' },
+  scoreLabel: { color: MUTED, fontSize: 12, fontWeight: '700' },
+  genreRail: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  genrePill: { backgroundColor: '#102516', borderColor: '#285C38', borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 7 },
+  genreText: { color: '#B6F7C6', fontSize: 12, fontWeight: '800' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sectionTitle: { color: TXT, fontSize: 20, fontWeight: '900' },
+  sectionTag: { color: MUTED, fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
+  panel: { backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, overflow: 'hidden' },
+  rankRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderBottomWidth: 1, borderBottomColor: '#1A2230' },
+  rankBadge: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  rankText: { fontSize: 13, fontWeight: '900' },
+  cover: { width: 50, height: 50, borderRadius: 6 },
+  coverFallback: { backgroundColor: '#263142' },
+  rankCopy: { flex: 1, minWidth: 0 },
+  rankTitle: { color: TXT, fontSize: 15, fontWeight: '900' },
+  rankSubtitle: { color: MUTED, fontSize: 12, marginTop: 3 },
+  meta: { color: GOLD, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
+  albumGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  albumCard: { width: '48%', backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 10, gap: 8 },
+  albumArt: { width: '100%', aspectRatio: 1, borderRadius: 6 },
+  albumName: { color: TXT, fontWeight: '900', minHeight: 38 },
+  albumArtist: { color: MUTED, fontSize: 12 },
+  pressed: { opacity: 0.85 },
+});

@@ -1,4 +1,5 @@
 import * as AuthSession from 'expo-auth-session';
+import { Platform } from 'react-native';
 
 export const SPOTIFY_SCOPES = [
   'user-read-email',
@@ -18,6 +19,14 @@ export const spotifyDiscovery = {
  * Web dev: http://localhost:8081 (or your Expo web URL origin + path if you customize)
  */
 export function getSpotifyRedirectUri() {
+  if (Platform.OS !== 'web') {
+    return AuthSession.makeRedirectUri({
+      native: 'musicshelf://spotify-callback',
+      scheme: 'musicshelf',
+      path: 'spotify-callback',
+    });
+  }
+
   return AuthSession.makeRedirectUri({
     scheme: 'musicshelf',
     path: 'spotify-callback',

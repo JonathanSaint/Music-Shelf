@@ -62,7 +62,7 @@ export default function ProfileTab() {
     Alert.alert('Spotify', err?.message || String(err));
   }, []);
 
-  const { connect, ready, redirectUri } = useSpotifyConnect({
+  const { connect, ready, hasClientId, loadingRequest, redirectUri } = useSpotifyConnect({
     uid: user?.uid,
     email: user?.email,
     onCompleted: onSpotifyDone,
@@ -70,6 +70,10 @@ export default function ProfileTab() {
   });
 
   async function handleConnectSpotify() {
+    if (!hasClientId) {
+      Alert.alert('Spotify', 'Add EXPO_PUBLIC_SPOTIFY_CLIENT_ID to .env, then restart Expo with npx expo start -c.');
+      return;
+    }
     if (!ready) {
       Alert.alert('Spotify', 'Still preparing login… try again in a second.');
       return;
@@ -116,12 +120,12 @@ export default function ProfileTab() {
       <View style={styles.row}>
         <Pressable
           onPress={handleConnectSpotify}
-          disabled={oauthBusy || !ready}
-          style={({ pressed }) => [styles.primary, (oauthBusy || !ready) && styles.disabled, pressed && styles.pressed]}>
+          disabled={oauthBusy || loadingRequest}
+          style={({ pressed }) => [styles.primary, (oauthBusy || loadingRequest || !hasClientId) && styles.disabled, pressed && styles.pressed]}>
           {oauthBusy ? (
             <ActivityIndicator color="#06110A" />
           ) : (
-            <Text style={styles.primaryText}>Connect Spotify</Text>
+            <Text style={styles.primaryText}>{hasClientId ? 'Connect Spotify' : 'Add Spotify Client ID'}</Text>
           )}
         </Pressable>
 
