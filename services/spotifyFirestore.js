@@ -141,6 +141,20 @@ export async function getPublicProfile(uid) {
   return snap.data();
 }
 
+export async function saveMusicInsight(uid, insight) {
+  if (!uid || !insight) return;
+  await setDoc(
+    userRef(uid),
+    {
+      spotify: {
+        aiInsight: insight,
+      },
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
 export async function ensureFreshAccessToken(uid) {
   let data = await getSpotifyTokens(uid);
   if (!data?.refreshToken && !data?.accessToken) return null;
