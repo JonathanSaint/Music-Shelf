@@ -10,7 +10,17 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Environment
+
+   - Copy `.env.example` to `.env` and fill **Firebase** (`EXPO_PUBLIC_FIREBASE_*`) and **Spotify** `EXPO_PUBLIC_SPOTIFY_CLIENT_ID`.
+   - In [Firebase Console](https://console.firebase.google.com), enable **Authentication** (Email/Password) and create a **Firestore** database. Deploy `firestore.rules` (or paste its contents in the Rules editor) so users can write only their own `users/{uid}` and `users/{uid}/private/*`.
+
+3. Spotify redirect URI
+
+   - Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+   - On the **Profile** tab inside the app, copy the **Redirect URI** shown under “Add this exact Redirect URI…” and add it under **Redirect URIs** in the Spotify app settings. It differs between Expo Go, dev builds, and web.
+
+4. Start the app
 
    ```bash
    npx expo start

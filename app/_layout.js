@@ -1,9 +1,12 @@
 import React from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as WebBrowser from 'expo-web-browser';
 import 'react-native-reanimated';
 
 import { AuthProvider } from '../hooks/useAuth';
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function RootLayout() {
   return (
