@@ -135,7 +135,8 @@ export default function StatsTab() {
   const daily = listeningDays(spotify?.recentlyPlayed || []);
   const maxDaily = Math.max(...daily.map((x) => x.value), 1);
   const topGenre = genreRows[0];
-  const story = moodStory({ genres: spotify?.genres || [], recent: spotify?.recentlyPlayed || [], tracks });
+  const aiInsight = spotify?.aiInsight;
+  const story = aiInsight?.story || moodStory({ genres: spotify?.genres || [], recent: spotify?.recentlyPlayed || [], tracks });
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -178,10 +179,12 @@ export default function StatsTab() {
 
           <View style={styles.panel}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Mood story</Text>
-              <Text style={styles.sectionMeta}>live</Text>
+              <Text style={styles.sectionTitle}>{aiInsight?.storyTitle || 'Mood story'}</Text>
+              <Text style={styles.sectionMeta}>{aiInsight ? aiInsight.mood : 'live'}</Text>
             </View>
             <Text style={styles.storyText}>{story}</Text>
+            {!!aiInsight?.songInsight && <Text style={styles.aiDetail}>{aiInsight.songInsight}</Text>}
+            {!!aiInsight?.albumInsight && <Text style={styles.aiDetail}>{aiInsight.albumInsight}</Text>}
           </View>
 
           <View style={styles.panel}>
@@ -274,6 +277,7 @@ const styles = StyleSheet.create({
   barTrack: { height: 9, backgroundColor: '#1A2230', borderRadius: 999, overflow: 'hidden' },
   barFill: { height: '100%', borderRadius: 999 },
   storyText: { color: TXT, lineHeight: 21, fontWeight: '700' },
+  aiDetail: { color: MUTED, lineHeight: 19 },
   artistRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 58 },
   artistRank: { color: GOLD, width: 22, fontSize: 18, fontWeight: '900', textAlign: 'center' },
   artistImage: { width: 48, height: 48, borderRadius: 24 },

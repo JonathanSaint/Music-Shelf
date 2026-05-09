@@ -54,6 +54,15 @@ function moodStory({ genres = [], recent = [], tracks = [] }) {
   };
 }
 
+function displayStory(spotify, fallbackStory) {
+  const insight = spotify?.aiInsight;
+  if (!insight?.story) return fallbackStory;
+  return {
+    title: insight.storyTitle || insight.mood || fallbackStory.title,
+    body: insight.story,
+  };
+}
+
 function getAlbumRankings(topTracks = []) {
   const albums = new Map();
   topTracks.forEach((track, index) => {
@@ -205,7 +214,7 @@ export default function HomeTab() {
   const eps = spotify?.epRankings || getReleaseRankings(topTracks, 'ep');
   const singles = spotify?.singleRankings || getReleaseRankings(topTracks, 'single');
   const topGenres = spotify?.genres?.slice(0, 4) || [];
-  const story = moodStory({ genres: spotify?.genres || [], recent: spotify?.recentlyPlayed || [], tracks: topTracks });
+  const story = displayStory(spotify, moodStory({ genres: spotify?.genres || [], recent: spotify?.recentlyPlayed || [], tracks: topTracks }));
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -264,6 +273,9 @@ export default function HomeTab() {
             <View style={styles.storyCopy}>
               <Text style={styles.storyTitle}>{story.title}</Text>
               <Text style={styles.storyText}>{story.body}</Text>
+              {!!spotify?.aiInsight?.tags?.length && (
+                <Text numberOfLines={1} style={styles.storyTags}>{spotify.aiInsight.tags.slice(0, 4).join(' / ')}</Text>
+              )}
             </View>
           </Pressable>
 
@@ -341,6 +353,7 @@ const styles = StyleSheet.create({
   storyCopy: { flex: 1, minWidth: 0, gap: 3 },
   storyTitle: { color: TXT, fontSize: 16, fontWeight: '900' },
   storyText: { color: MUTED, lineHeight: 19 },
+  storyTags: { color: GOLD, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', marginTop: 2 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: TXT, fontSize: 20, fontWeight: '900' },
   sectionTag: { color: MUTED, fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },

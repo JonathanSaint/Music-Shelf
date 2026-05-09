@@ -15,6 +15,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useSpotifyConnect } from '../../hooks/useSpotifyConnect';
 import { router } from 'expo-router';
 import { getPublicProfile, syncSpotifyProfileToFirestore } from '../../services/spotifyFirestore';
+import { generateMusicInsight } from '../../services/musicInsight';
 
 const BG = '#0B0F14';
 const CARD = '#111826';
@@ -92,6 +93,11 @@ export default function ProfileTab() {
     setRefreshing(true);
     try {
       await syncSpotifyProfileToFirestore(user.uid, user.email);
+      try {
+        await generateMusicInsight();
+      } catch (aiError) {
+        console.warn('AI insight skipped:', aiError?.message || aiError);
+      }
       await loadProfile();
     } catch (e) {
       Alert.alert('Refresh', e?.message || String(e));
