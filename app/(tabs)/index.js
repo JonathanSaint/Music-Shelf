@@ -21,6 +21,39 @@ function artistLine(track) {
   return (track?.artists || []).map((x) => x.name).join(', ') || track?.albumName || 'Unknown artist';
 }
 
+function moodStory({ genres = [], recent = [], tracks = [] }) {
+  const topGenre = genres[0] || 'mixed sounds';
+  const nightPlays = recent.filter((item) => {
+    const hour = new Date(item.playedAt).getHours();
+    return hour >= 22 || hour < 5;
+  }).length;
+  const leadArtist = tracks[0]?.artists?.[0]?.name || 'your repeat artists';
+  const leadSong = tracks[0]?.name || 'your top songs';
+
+  if (nightPlays >= 4) {
+    return {
+      title: 'After-hours loop',
+      body: `Your recent plays lean late-night, with ${leadSong} and ${topGenre} setting the mood.`,
+    };
+  }
+  if ((genres || []).some((genre) => /dance|pop|afro|house|club|edm/i.test(genre))) {
+    return {
+      title: 'Bright rotation',
+      body: `${topGenre} is doing the heavy lifting, and ${leadArtist} keeps the energy moving.`,
+    };
+  }
+  if ((genres || []).some((genre) => /sad|emo|r&b|soul|acoustic|indie/i.test(genre))) {
+    return {
+      title: 'Soft focus',
+      body: `Your shelf feels reflective right now, led by ${leadArtist} and a lot of ${topGenre}.`,
+    };
+  }
+  return {
+    title: 'Balanced shelf',
+    body: `Your listening has been spread across ${topGenre}, with ${leadArtist} near the center.`,
+  };
+}
+
 function getAlbumRankings(topTracks = []) {
   const albums = new Map();
   topTracks.forEach((track, index) => {
@@ -88,27 +121,22 @@ function RankBadge({ rank }) {
 }
 
 function RankMovement({ change }) {
-  if (change === null || change === undefined) {
-    return (
-      <View style={[styles.movementBadge, styles.movementFlat]}>
-        <Ionicons name="remove" color={MUTED} size={12} />
-      </View>
-    );
-  }
-
   const isUp = change > 0;
   const isDown = change < 0;
+  if (!isUp && !isDown) return null;
+
   return (
-    <View style={[styles.movementBadge, isUp && styles.movementUp, isDown && styles.movementDown]}>
-      <Ionicons name={isUp ? 'arrow-up' : isDown ? 'arrow-down' : 'remove'} color={isUp ? GREEN : isDown ? PINK : MUTED} size={12} />
-      {!!change && <Text style={[styles.movementText, { color: isUp ? GREEN : PINK }]}>{Math.abs(change)}</Text>}
+    <View style={styles.movementBadge}>
+      <Ionicons name={isUp ? 'caret-up' : 'caret-down'} color={isUp ? GREEN : PINK} size={14} />
+      <Text style={[styles.movementText, { color: isUp ? GREEN : PINK }]}>{Math.abs(change)}</Text>
     </View>
   );
 }
 
-function RankedRow({ item, rank, subtitle, meta, showMovement = false }) {
+function RankedRow({ item, rank, subtitle, meta, showMovement = false, onPress }) {
+  const Row = onPress ? Pressable : View;
   return (
-    <View style={styles.rankRow}>
+    <Row onPress={onPress} style={onPress ? ({ pressed }) => [styles.rankRow, pressed && styles.pressed] : styles.rankRow}>
       <RankBadge rank={rank} />
       {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.cover} /> : <View style={[styles.cover, styles.coverFallback]} />}
       <View style={styles.rankCopy}>
@@ -117,11 +145,11 @@ function RankedRow({ item, rank, subtitle, meta, showMovement = false }) {
       </View>
       {showMovement && <RankMovement change={item.rankChange} />}
       {!!meta && <Text style={styles.meta}>{meta}</Text>}
-    </View>
+    </Row>
   );
 }
 
-function ReleaseBoard({ title, tag, releases }) {
+function ReleaseBoard({ title, tag, releases, kind }) {
   if (!releases.length) return null;
   return (
     <>
@@ -137,6 +165,7 @@ function ReleaseBoard({ title, tag, releases }) {
             rank={index + 1}
             subtitle={release.artists || `${release.tracks} tracks`}
             meta={`${release.score} pts`}
+            onPress={() => router.push(`/item/${kind}?id=${encodeURIComponent(release.id || release.name)}`)}
           />
         ))}
       </View>
@@ -176,6 +205,7 @@ export default function HomeTab() {
   const eps = spotify?.epRankings || getReleaseRankings(topTracks, 'ep');
   const singles = spotify?.singleRankings || getReleaseRankings(topTracks, 'single');
   const topGenres = spotify?.genres?.slice(0, 4) || [];
+  const story = moodStory({ genres: spotify?.genres || [], recent: spotify?.recentlyPlayed || [], tracks: topTracks });
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -184,7 +214,9 @@ export default function HomeTab() {
           <Text style={styles.eyebrow}>Music Shelf</Text>
           <Text style={styles.h1}>Your listening leaderboard</Text>
         </View>
-        {spotify?.imageUrl ? <Image source={{ uri: spotify.imageUrl }} style={styles.avatar} /> : <View style={[styles.avatar, styles.avatarFallback]} />}
+        <Pressable onPress={() => router.push('/(tabs)/profile')} style={({ pressed }) => pressed && styles.pressed}>
+          {spotify?.imageUrl ? <Image source={{ uri: spotify.imageUrl }} style={styles.avatar} /> : <View style={[styles.avatar, styles.avatarFallback]} />}
+        </Pressable>
       </View>
 
       {loading ? (
@@ -225,13 +257,31 @@ export default function HomeTab() {
             </View>
           )}
 
+          <Pressable onPress={() => router.push('/(tabs)/stats')} style={({ pressed }) => [styles.storyPanel, pressed && styles.pressed]}>
+            <View style={styles.storyIcon}>
+              <Ionicons name="sparkles-outline" color={GOLD} size={18} />
+            </View>
+            <View style={styles.storyCopy}>
+              <Text style={styles.storyTitle}>{story.title}</Text>
+              <Text style={styles.storyText}>{story.body}</Text>
+            </View>
+          </Pressable>
+
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Top songs</Text>
             <Text style={styles.sectionTag}>short term</Text>
           </View>
           <View style={styles.panel}>
             {topTracks.slice(0, 5).map((track, index) => (
-              <RankedRow key={track.id || `${track.name}-${index}`} item={track} rank={index + 1} subtitle={artistLine(track)} meta={index === 0 ? 'crown' : null} showMovement />
+              <RankedRow
+                key={track.id || `${track.name}-${index}`}
+                item={track}
+                rank={index + 1}
+                subtitle={artistLine(track)}
+                meta={index === 0 ? 'crown' : null}
+                showMovement
+                onPress={() => router.push(`/item/song?id=${encodeURIComponent(track.id || track.name)}`)}
+              />
             ))}
           </View>
 
@@ -241,7 +291,10 @@ export default function HomeTab() {
           </View>
           <View style={styles.albumGrid}>
             {albums.map((album, index) => (
-              <View key={album.id} style={styles.albumCard}>
+              <Pressable
+                key={album.id}
+                onPress={() => router.push(`/item/album?id=${encodeURIComponent(album.id || album.name)}`)}
+                style={({ pressed }) => [styles.albumCard, pressed && styles.pressed]}>
                 <View style={styles.albumCardTop}>
                   <RankBadge rank={index + 1} />
                   <RankMovement change={album.rankChange} />
@@ -249,12 +302,14 @@ export default function HomeTab() {
                 {album.imageUrl ? <Image source={{ uri: album.imageUrl }} style={styles.albumArt} /> : <View style={[styles.albumArt, styles.coverFallback]} />}
                 <Text numberOfLines={2} style={styles.albumName}>{album.name}</Text>
                 <Text numberOfLines={1} style={styles.albumArtist}>{album.artists || `${album.tracks} tracks`}</Text>
-              </View>
+              </Pressable>
             ))}
           </View>
 
-          <ReleaseBoard title="Top EPs" tag="from top tracks" releases={eps} />
-          <ReleaseBoard title="Top singles" tag="from top tracks" releases={singles} />
+          <ReleaseBoard title="Top EPs" tag="from top tracks" releases={eps} kind="ep" />
+          <ReleaseBoard title="Top singles" tag="from top tracks" releases={singles} kind="single" />
+
+          <Text style={styles.creator}>Created by Jonathan Arinda</Text>
         </>
       )}
     </ScrollView>
@@ -281,6 +336,11 @@ const styles = StyleSheet.create({
   genreRail: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   genrePill: { backgroundColor: '#102516', borderColor: '#285C38', borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 7 },
   genreText: { color: '#B6F7C6', fontSize: 12, fontWeight: '800' },
+  storyPanel: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 14 },
+  storyIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#392C08', alignItems: 'center', justifyContent: 'center' },
+  storyCopy: { flex: 1, minWidth: 0, gap: 3 },
+  storyTitle: { color: TXT, fontSize: 16, fontWeight: '900' },
+  storyText: { color: MUTED, lineHeight: 19 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: TXT, fontSize: 20, fontWeight: '900' },
   sectionTag: { color: MUTED, fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
@@ -288,10 +348,7 @@ const styles = StyleSheet.create({
   rankRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderBottomWidth: 1, borderBottomColor: '#1A2230' },
   rankBadge: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   rankText: { fontSize: 13, fontWeight: '900' },
-  movementBadge: { minWidth: 28, height: 24, borderRadius: 12, paddingHorizontal: 6, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
-  movementUp: { backgroundColor: '#102516', borderColor: '#285C38' },
-  movementDown: { backgroundColor: '#361326', borderColor: '#71304F' },
-  movementFlat: { backgroundColor: '#1A2230', borderColor: BORDER },
+  movementBadge: { minWidth: 24, height: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 1 },
   movementText: { fontSize: 11, fontWeight: '900' },
   cover: { width: 50, height: 50, borderRadius: 6 },
   coverFallback: { backgroundColor: '#263142' },
@@ -305,5 +362,6 @@ const styles = StyleSheet.create({
   albumArt: { width: '100%', aspectRatio: 1, borderRadius: 6 },
   albumName: { color: TXT, fontWeight: '900', minHeight: 38 },
   albumArtist: { color: MUTED, fontSize: 12 },
+  creator: { color: MUTED, textAlign: 'center', fontSize: 12, fontWeight: '800', marginTop: 4 },
   pressed: { opacity: 0.85 },
 });

@@ -7,7 +7,6 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
-  Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { signOut } from 'firebase/auth';
@@ -62,7 +61,7 @@ export default function ProfileTab() {
     Alert.alert('Spotify', err?.message || String(err));
   }, []);
 
-  const { connect, ready, hasClientId, loadingRequest, redirectUri } = useSpotifyConnect({
+  const { connect, ready, hasClientId, loadingRequest } = useSpotifyConnect({
     uid: user?.uid,
     email: user?.email,
     onCompleted: onSpotifyDone,
@@ -140,13 +139,6 @@ export default function ProfileTab() {
           )}
         </Pressable>
       </View>
-
-      <Text style={styles.hint}>
-        Add this exact Redirect URI in Spotify Dashboard → Settings:{' '}
-        <Text selectable style={styles.mono}>
-          {redirectUri || '…'}
-        </Text>
-      </Text>
 
       {loadingProfile ? (
         <ActivityIndicator color={GREEN} style={{ marginTop: 16 }} />
@@ -274,8 +266,6 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
   },
   outlineText: { color: TXT, fontWeight: '700' },
-  hint: { color: MUTED, fontSize: 11, lineHeight: 16 },
-  mono: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 10 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatar: { width: 72, height: 72, borderRadius: 36 },
   avatarPlaceholder: { backgroundColor: '#243246' },

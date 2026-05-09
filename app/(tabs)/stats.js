@@ -39,6 +39,37 @@ function recentHours(recent = []) {
   return Object.entries(buckets).map(([label, value]) => ({ label, value }));
 }
 
+function listeningDays(recent = []) {
+  const days = new Map();
+  recent.forEach((item) => {
+    if (!item.playedAt) return;
+    const day = new Date(item.playedAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const durationMs = Number(item.track?.durationMs || 0);
+    days.set(day, (days.get(day) || 0) + durationMs);
+  });
+  return Array.from(days.entries())
+    .map(([label, durationMs]) => ({
+      label,
+      value: Number((durationMs / 3600000).toFixed(1)),
+      minutes: Math.round(durationMs / 60000),
+    }))
+    .slice(0, 5);
+}
+
+function moodStory({ genres = [], recent = [], tracks = [] }) {
+  const topGenre = genres[0] || 'mixed genres';
+  const nightPlays = recent.filter((item) => {
+    const hour = new Date(item.playedAt).getHours();
+    return hour >= 22 || hour < 5;
+  }).length;
+  const topTrack = tracks[0]?.name || 'your repeat tracks';
+
+  if (nightPlays >= 4) return `You have been in a late-night ${topGenre} pocket, circling back to ${topTrack}.`;
+  if ((genres || []).some((genre) => /dance|pop|afro|house|club|edm/i.test(genre))) return `Your recent mood reads bright and active, with ${topGenre} carrying most of the motion.`;
+  if ((genres || []).some((genre) => /sad|emo|r&b|soul|acoustic|indie/i.test(genre))) return `Your listening has been softer and more reflective, especially around ${topGenre}.`;
+  return `Your mood has been balanced, moving through ${topGenre} without one single lane taking over.`;
+}
+
 function StatTile({ icon, label, value, color }) {
   return (
     <View style={styles.tile}>
@@ -101,6 +132,10 @@ export default function StatsTab() {
   const maxGenre = Math.max(...genreRows.map((x) => x.value), 1);
   const recent = recentHours(spotify?.recentlyPlayed || []);
   const maxRecent = Math.max(...recent.map((x) => x.value), 1);
+  const daily = listeningDays(spotify?.recentlyPlayed || []);
+  const maxDaily = Math.max(...daily.map((x) => x.value), 1);
+  const topGenre = genreRows[0];
+  const story = moodStory({ genres: spotify?.genres || [], recent: spotify?.recentlyPlayed || [], tracks });
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -126,6 +161,27 @@ export default function StatsTab() {
             <StatTile icon="musical-notes-outline" label="Top songs" value={tracks.length} color={GREEN} />
             <StatTile icon="people-outline" label="Top artists" value={artists.length} color={BLUE} />
             <StatTile icon="radio-outline" label="Recent plays" value={spotify.recentlyPlayed?.length || 0} color={PINK} />
+          </View>
+
+          <View style={styles.insightGrid}>
+            <View style={styles.insightCard}>
+              <Text style={styles.insightLabel}>Top genre</Text>
+              <Text numberOfLines={1} style={styles.insightValue}>{topGenre?.label || 'Unknown'}</Text>
+              <Text style={styles.insightMeta}>{topGenre ? `${topGenre.value} weighted signals` : 'Refresh Spotify to update'}</Text>
+            </View>
+            <View style={styles.insightCard}>
+              <Text style={styles.insightLabel}>{daily[0]?.label || 'Listening day'}</Text>
+              <Text style={styles.insightValue}>{daily[0]?.value || 0}h</Text>
+              <Text style={styles.insightMeta}>{daily[0]?.minutes || 0} minutes from recent plays</Text>
+            </View>
+          </View>
+
+          <View style={styles.panel}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Mood story</Text>
+              <Text style={styles.sectionMeta}>live</Text>
+            </View>
+            <Text style={styles.storyText}>{story}</Text>
           </View>
 
           <View style={styles.panel}>
@@ -157,6 +213,18 @@ export default function StatsTab() {
               <BarRow key={bucket.label} label={bucket.label} value={bucket.value} max={maxRecent} color={[GOLD, GREEN, PINK, BLUE][index]} />
             ))}
           </View>
+
+          {!!daily.length && (
+            <View style={styles.panel}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Hours by day</Text>
+                <Text style={styles.sectionMeta}>recent</Text>
+              </View>
+              {daily.map((day, index) => (
+                <BarRow key={day.label} label={day.label} value={day.value} max={maxDaily} color={[GREEN, GOLD, BLUE, PINK][index % 4]} />
+              ))}
+            </View>
+          )}
 
           <View style={styles.panel}>
             <View style={styles.sectionHeader}>
@@ -190,6 +258,11 @@ const styles = StyleSheet.create({
   tile: { flex: 1, minHeight: 104, backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 12, justifyContent: 'space-between' },
   tileValue: { color: TXT, fontSize: 26, fontWeight: '900' },
   tileLabel: { color: MUTED, fontSize: 12, fontWeight: '800' },
+  insightGrid: { flexDirection: 'row', gap: 10 },
+  insightCard: { flex: 1, backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 12, gap: 6 },
+  insightLabel: { color: MUTED, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
+  insightValue: { color: TXT, fontSize: 20, fontWeight: '900' },
+  insightMeta: { color: MUTED, fontSize: 12, lineHeight: 16 },
   panel: { backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 14, gap: 12 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: TXT, fontSize: 18, fontWeight: '900' },
@@ -200,6 +273,7 @@ const styles = StyleSheet.create({
   barValue: { color: MUTED, fontWeight: '900' },
   barTrack: { height: 9, backgroundColor: '#1A2230', borderRadius: 999, overflow: 'hidden' },
   barFill: { height: '100%', borderRadius: 999 },
+  storyText: { color: TXT, lineHeight: 21, fontWeight: '700' },
   artistRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 58 },
   artistRank: { color: GOLD, width: 22, fontSize: 18, fontWeight: '900', textAlign: 'center' },
   artistImage: { width: 48, height: 48, borderRadius: 24 },

@@ -65,6 +65,7 @@ export async function fetchSpotifyIdentityBundle(accessToken) {
       id: t.id,
       name: t.name,
       previewUrl: t.preview_url || null,
+      durationMs: t.duration_ms || 0,
       artists: (t.artists || []).map((x) => ({ id: x.id, name: x.name })),
       albumId: t.album?.id || null,
       albumName: t.album?.name || '',
@@ -79,6 +80,7 @@ export async function fetchSpotifyIdentityBundle(accessToken) {
       track: {
         id: item.track?.id,
         name: item.track?.name,
+        durationMs: item.track?.duration_ms || 0,
         artists: (item.track?.artists || []).map((x) => ({ name: x.name })),
         albumId: item.track?.album?.id || null,
         albumName: item.track?.album?.name || '',
