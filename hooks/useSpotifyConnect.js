@@ -95,7 +95,9 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
       errorRef.current?.(new Error('Set EXPO_PUBLIC_SPOTIFY_CLIENT_ID'));
       return { type: 'error' };
     }
-    return promptAsync();
+    return promptAsync({
+      preferEphemeralSession: false,
+    });
   }, [promptAsync]);
 
   const ready = !!request && hasClientId;

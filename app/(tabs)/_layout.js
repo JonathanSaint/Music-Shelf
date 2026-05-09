@@ -1,5 +1,6 @@
 import React from 'react';
 import { Tabs, Redirect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 
 export default function TabLayout() {
@@ -12,13 +13,38 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: { backgroundColor: '#0B0F14', borderTopColor: '#1F2A3A' },
-        tabBarActiveTintColor: '#1DB954',
+        tabBarStyle: { backgroundColor: '#080B10', borderTopColor: '#202633', height: 64, paddingBottom: 8, paddingTop: 8 },
+        tabBarActiveTintColor: '#69E58D',
         tabBarInactiveTintColor: '#9AA4B2',
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Home' }} />
-      <Tabs.Screen name="search" options={{ title: 'Search' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => <Ionicons name="albums-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="stats"
+        options={{
+          title: 'Stats',
+          tabBarIcon: ({ color, size }) => <Ionicons name="stats-chart-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="search"
+        options={{
+          title: 'Search',
+          tabBarIcon: ({ color, size }) => <Ionicons name="search-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, size }) => <Ionicons name="person-circle-outline" color={color} size={size} />,
+        }}
+      />
     </Tabs>
   );
 }
