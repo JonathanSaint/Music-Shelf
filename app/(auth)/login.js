@@ -10,6 +10,25 @@ const TXT = '#E6EDF3';
 const MUTED = '#9AA4B2';
 const GREEN = '#1DB954';
 
+function getAuthErrorMessage(error) {
+  switch (error?.code) {
+    case 'auth/configuration-not-found':
+      return 'Firebase Authentication is not configured yet. In Firebase Console, open Authentication > Sign-in method and enable Email/Password for this project.';
+    case 'auth/invalid-credential':
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+      return 'The email or password is incorrect.';
+    case 'auth/email-already-in-use':
+      return 'That email already has an account. Try signing in instead.';
+    case 'auth/weak-password':
+      return 'Use a password with at least 6 characters.';
+    case 'auth/invalid-email':
+      return 'Enter a valid email address.';
+    default:
+      return error?.message || 'Something went wrong';
+  }
+}
+
 export default function LoginScreen() {
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -28,7 +47,7 @@ export default function LoginScreen() {
       }
       router.replace('/(tabs)');
     } catch (e) {
-      setError(e?.message || 'Something went wrong');
+      setError(getAuthErrorMessage(e));
     } finally {
       setBusy(false);
     }

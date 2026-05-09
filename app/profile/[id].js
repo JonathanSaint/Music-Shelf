@@ -15,6 +15,7 @@ export default function PublicProfileScreen() {
   const uid = String(id || '');
   const [profile, setProfile] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
 
   React.useEffect(() => {
     let cancelled = false;
@@ -24,9 +25,17 @@ export default function PublicProfileScreen() {
         return;
       }
       setLoading(true);
+      setError('');
       try {
         const data = await getPublicProfile(uid);
         if (!cancelled) setProfile(data);
+      } catch (e) {
+        if (!cancelled) {
+          setProfile(null);
+          setError(e?.code === 'permission-denied'
+            ? 'Firestore blocked this profile read. Deploy the project firestore.rules in Firebase Console or with the Firebase CLI.'
+            : e?.message || 'Could not load profile');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -51,7 +60,7 @@ export default function PublicProfileScreen() {
     return (
       <View style={styles.root}>
         <Text style={styles.h1}>Profile</Text>
-        <Text style={styles.muted}>No public Spotify data for this user yet.</Text>
+        <Text style={styles.muted}>{error || 'No public Spotify data for this user yet.'}</Text>
       </View>
     );
   }

@@ -15,6 +15,7 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="profile/[id]" />
+        <Stack.Screen name="spotify-callback" />
       </Stack>
       <StatusBar style="light" />
     </AuthProvider>

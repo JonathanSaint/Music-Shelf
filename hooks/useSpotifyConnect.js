@@ -27,6 +27,7 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
   }, [onError]);
 
   const cid = clientId();
+  const hasClientId = !!cid && cid !== 'missing-client-id';
 
   const [request, response, promptAsync] = useAuthRequest(
     {
@@ -97,7 +98,7 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
     return promptAsync();
   }, [promptAsync]);
 
-  const ready = !!request && !!cid && cid !== 'missing-client-id';
+  const ready = !!request && hasClientId;
 
-  return { connect, ready, loadingRequest: !request, redirectUri };
+  return { connect, ready, hasClientId, loadingRequest: !request, redirectUri };
 }
