@@ -60,6 +60,8 @@ export async function fetchSpotifyIdentityBundle(accessToken) {
       name: a.name,
       imageUrl: a.images?.[0]?.url || null,
       genres: a.genres || [],
+      popularity: a.popularity || 0,
+      followers: a.followers?.total || 0,
     })),
     topTracks: (topTracks.items || []).map((t) => ({
       id: t.id,

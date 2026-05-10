@@ -21,6 +21,7 @@ function artistLine(item) {
 }
 
 function releaseList(spotify, kind) {
+  if (kind === 'artist') return spotify?.topArtists || [];
   if (kind === 'album') return spotify?.albumRankings || [];
   if (kind === 'ep') return spotify?.epRankings || [];
   if (kind === 'single') return spotify?.singleRankings || [];
@@ -31,6 +32,7 @@ function matches(kind, target, recentItem) {
   const track = recentItem?.track;
   if (!track || !target) return false;
   if (kind === 'song') return (track.id && track.id === target.id) || track.name === target.name;
+  if (kind === 'artist') return (track.artists || []).some((artist) => artist.name === target.name);
   return (track.albumId && track.albumId === target.id) || track.albumName === target.name;
 }
 
@@ -72,7 +74,7 @@ export default function ItemStats() {
   const recentMatches = (spotify?.recentlyPlayed || []).filter((recentItem) => matches(kind, item, recentItem));
   const minutes = Math.round(recentMatches.reduce((sum, recentItem) => sum + Number(recentItem.track?.durationMs || 0), 0) / 60000);
   const rank = items.findIndex((entry) => entry.id === item?.id || entry.name === item?.name) + 1;
-  const title = kind === 'song' ? 'Song stats' : `${String(kind || 'Release').toUpperCase()} stats`;
+  const title = kind === 'song' ? 'Song stats' : kind === 'artist' ? 'Artist signal' : `${String(kind || 'Release').toUpperCase()} stats`;
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -95,7 +97,7 @@ export default function ItemStats() {
           <View style={styles.header}>
             <Text style={styles.eyebrow}>{title}</Text>
             <Text style={styles.h1}>{item.name}</Text>
-            <Text style={styles.subtitle}>{kind === 'song' ? artistLine(item) : item.artists || 'Release'}</Text>
+            <Text style={styles.subtitle}>{kind === 'song' ? artistLine(item) : kind === 'artist' ? (item.genres || []).slice(0, 3).join(', ') || 'Artist' : item.artists || 'Release'}</Text>
           </View>
 
           <View style={styles.tileGrid}>
@@ -112,6 +114,28 @@ export default function ItemStats() {
               <Text style={styles.tileLabel}>minutes</Text>
             </View>
           </View>
+
+          {kind === 'artist' && (
+            <View style={styles.panel}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Artist identity</Text>
+                <Text style={styles.sectionMeta}>spotify</Text>
+              </View>
+              <Text style={styles.body}>
+                {item.name} sits at #{rank || '-'} in your current artist signals with {(item.genres || []).slice(0, 4).join(', ') || 'a mixed genre profile'}.
+              </Text>
+              <View style={styles.detailGrid}>
+                <View style={styles.detailPill}>
+                  <Text style={styles.detailValue}>{item.popularity || 0}</Text>
+                  <Text style={styles.detailLabel}>popularity</Text>
+                </View>
+                <View style={styles.detailPill}>
+                  <Text style={styles.detailValue}>{item.followers ? item.followers.toLocaleString() : '-'}</Text>
+                  <Text style={styles.detailLabel}>followers</Text>
+                </View>
+              </View>
+            </View>
+          )}
 
           <View style={styles.panel}>
             <View style={styles.sectionHeader}>
@@ -167,6 +191,10 @@ const styles = StyleSheet.create({
   body: { color: TXT, lineHeight: 21, fontWeight: '700' },
   playRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
   playText: { color: TXT, fontWeight: '800' },
+  detailGrid: { flexDirection: 'row', gap: 10 },
+  detailPill: { flex: 1, backgroundColor: '#151D2A', borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 10, gap: 3 },
+  detailValue: { color: TXT, fontSize: 18, fontWeight: '900' },
+  detailLabel: { color: MUTED, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   emptyTitle: { color: TXT, fontSize: 18, fontWeight: '900' },
   emptyText: { color: MUTED, lineHeight: 20 },
   pressed: { opacity: 0.85 },
