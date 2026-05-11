@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import 'react-native-reanimated';
+import { Analytics } from '@vercel/analytics/react';
 
 import { AuthProvider } from '../hooks/useAuth';
 
@@ -19,6 +20,7 @@ export default function RootLayout() {
         <Stack.Screen name="spotify-callback" />
       </Stack>
       <StatusBar style="light" />
+      <Analytics />
     </AuthProvider>
   );
 }
