@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
+import { useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
 import { getPublicProfile, saveMusicInsight } from '../../services/spotifyFirestore';
 import { generateMusicInsight } from '../../services/musicInsight';
 
@@ -153,6 +154,7 @@ function SectionHeader({ title, tag }) {
 
 export default function AuraTab() {
   const { user } = useAuth();
+  const syncTick = useSpotifySyncTick();
   const pulse = React.useRef(new Animated.Value(0)).current;
   const [profile, setProfile] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -172,7 +174,7 @@ export default function AuraTab() {
     } finally {
       setLoading(false);
     }
-  }, [user?.uid]);
+  }, [user?.uid, syncTick]);
 
   React.useEffect(() => {
     loadProfile();

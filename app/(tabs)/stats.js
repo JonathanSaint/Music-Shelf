@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
+import { useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
 import { getPublicProfile } from '../../services/spotifyFirestore';
 
 const BG = '#080B10';
@@ -97,6 +98,7 @@ function BarRow({ label, value, max, color = GREEN }) {
 
 export default function StatsTab() {
   const { user } = useAuth();
+  const syncTick = useSpotifySyncTick();
   const [profile, setProfile] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -119,7 +121,7 @@ export default function StatsTab() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid]);
+  }, [user?.uid, syncTick]);
 
   const spotify = profile?.spotify;
   const tracks = spotify?.topTracks || [];

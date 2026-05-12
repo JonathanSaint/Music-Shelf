@@ -12,6 +12,7 @@ import { Image } from 'expo-image';
 import { signOut } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
 import { useAuth } from '../../hooks/useAuth';
+import { useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
 import { useSpotifyConnect } from '../../hooks/useSpotifyConnect';
 import { router } from 'expo-router';
 import { getPublicProfile, saveMusicInsight, syncSpotifyProfileToFirestore } from '../../services/spotifyFirestore';
@@ -24,8 +25,12 @@ const TXT = '#E6EDF3';
 const MUTED = '#9AA4B2';
 const GREEN = '#1DB954';
 
+const SPOTIFY_MARK =
+  'https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Spotify_icon.svg/96px-Spotify_icon.svg.png';
+
 export default function ProfileTab() {
   const { user } = useAuth();
+  const syncTick = useSpotifySyncTick();
   const [profile, setProfile] = React.useState(null);
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
@@ -50,7 +55,7 @@ export default function ProfileTab() {
 
   React.useEffect(() => {
     loadProfile();
-  }, [loadProfile]);
+  }, [loadProfile, syncTick]);
 
   const onSpotifyDone = React.useCallback(() => {
     setOauthBusy(false);
@@ -128,11 +133,26 @@ export default function ProfileTab() {
         <Pressable
           onPress={handleConnectSpotify}
           disabled={oauthBusy || loadingRequest}
-          style={({ pressed }) => [styles.primary, (oauthBusy || loadingRequest || !hasClientId) && styles.disabled, pressed && styles.pressed]}>
+          style={({ pressed }) => [
+            styles.primary,
+            !!spotify && styles.primaryConnected,
+            (oauthBusy || loadingRequest || !hasClientId) && styles.disabled,
+            pressed && styles.pressed,
+          ]}>
+          <View style={styles.spotifyBgMarks} pointerEvents="none">
+            <Image source={{ uri: SPOTIFY_MARK }} style={[styles.bgMark, styles.bgMark1]} />
+            <Image source={{ uri: SPOTIFY_MARK }} style={[styles.bgMark, styles.bgMark2]} />
+            <Image source={{ uri: SPOTIFY_MARK }} style={[styles.bgMark, styles.bgMark3]} />
+          </View>
           {oauthBusy ? (
-            <ActivityIndicator color="#06110A" />
+            <ActivityIndicator color="#06110A" style={{ zIndex: 1 }} />
           ) : (
-            <Text style={styles.primaryText}>{hasClientId ? 'Connect Spotify' : 'Add Spotify Client ID'}</Text>
+            <View style={styles.spotifyBtnInner}>
+              <Text style={styles.primaryText}>
+                {!hasClientId ? 'Add Spotify Client ID' : spotify ? 'Connected to Spotify' : 'Connect Spotify'}
+              </Text>
+              {!!spotify && <Text style={styles.primarySub}>{spotify.displayName}</Text>}
+            </View>
           )}
         </Pressable>
 
@@ -253,11 +273,34 @@ const styles = StyleSheet.create({
   row: { gap: 10 },
   primary: {
     backgroundColor: GREEN,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 999,
     alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    minHeight: 52,
+    position: 'relative',
   },
+  primaryConnected: {
+    backgroundColor: '#14833B',
+    borderWidth: 1,
+    borderColor: 'rgba(6, 17, 10, 0.35)',
+  },
+  spotifyBgMarks: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bgMark: {
+    position: 'absolute',
+    width: 88,
+    height: 88,
+    opacity: 0.14,
+  },
+  bgMark1: { top: -28, right: -12, transform: [{ rotate: '14deg' }] },
+  bgMark2: { bottom: -36, left: 28, transform: [{ rotate: '-22deg' }] },
+  bgMark3: { top: 8, left: -24, transform: [{ rotate: '38deg' }] },
+  spotifyBtnInner: { alignItems: 'center', gap: 2, zIndex: 1 },
   primaryText: { color: '#06110A', fontWeight: '800' },
+  primarySub: { color: 'rgba(6, 17, 10, 0.75)', fontSize: 12, fontWeight: '700' },
   secondary: {
     borderRadius: 999,
     paddingVertical: 12,

@@ -4,7 +4,9 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
+import { useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
 import { getPublicProfile } from '../../services/spotifyFirestore';
+import { fetchTrackEnrichment } from '../../services/trackEnrichment';
 
 const BG = '#080B10';
 const PANEL = '#101722';
@@ -15,6 +17,7 @@ const GREEN = '#69E58D';
 const BLUE = '#7AA7FF';
 const PINK = '#FF7AB6';
 const GOLD = '#FFD166';
+const VIOLET = '#C4B5FD';
 
 function artistLine(item) {
   return (item?.artists || []).map((x) => x.name || x).join(', ') || item?.artists || 'Unknown artist';
@@ -41,11 +44,38 @@ function formatTime(playedAt) {
   return new Date(playedAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
+function formatDurationMs(ms) {
+  const n = Number(ms) || 0;
+  if (!n) return '—';
+  const totalSec = Math.floor(n / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function formatReleaseDate(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const d = new Date(raw + 'T12:00:00');
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  }
+  if (/^\d{4}-\d{2}$/.test(raw)) {
+    const [y, mo] = raw.split('-');
+    return new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+  }
+  if (/^\d{4}$/.test(raw)) return raw;
+  return raw;
+}
+
 export default function ItemStats() {
   const { user } = useAuth();
+  const syncTick = useSpotifySyncTick();
   const { kind, id } = useLocalSearchParams();
   const [profile, setProfile] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  const [enrichment, setEnrichment] = React.useState(null);
+  const [enrichmentLoading, setEnrichmentLoading] = React.useState(false);
+  const [enrichmentError, setEnrichmentError] = React.useState('');
 
   React.useEffect(() => {
     let cancelled = false;
@@ -65,7 +95,44 @@ export default function ItemStats() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid]);
+  }, [user?.uid, syncTick]);
+
+  React.useEffect(() => {
+    setEnrichment(null);
+    setEnrichmentError('');
+  }, [kind, id, user?.uid, syncTick]);
+
+  React.useEffect(() => {
+    if (kind !== 'song' || !user?.uid || !profile) return undefined;
+    const items = releaseList(profile.spotify, kind);
+    const decodedId = typeof id === 'string' ? id : '';
+    const trackItem = items.find((entry) => entry.id === decodedId || entry.name === decodedId);
+    if (!trackItem?.name) return undefined;
+
+    let cancelled = false;
+    async function run() {
+      setEnrichmentLoading(true);
+      setEnrichmentError('');
+      try {
+        const data = await fetchTrackEnrichment({
+          name: trackItem.name,
+          artists: (trackItem.artists || []).map((a) => a.name).filter(Boolean),
+          albumName: trackItem.albumName || '',
+          albumReleaseDate: trackItem.albumReleaseDate || '',
+          durationMs: trackItem.durationMs || 0,
+        });
+        if (!cancelled) setEnrichment(data);
+      } catch (e) {
+        if (!cancelled) setEnrichmentError(e?.message || 'Could not load AI track info.');
+      } finally {
+        if (!cancelled) setEnrichmentLoading(false);
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, id, user?.uid, profile]);
 
   const spotify = profile?.spotify;
   const decodedId = typeof id === 'string' ? id : '';
@@ -114,6 +181,85 @@ export default function ItemStats() {
               <Text style={styles.tileLabel}>minutes</Text>
             </View>
           </View>
+
+          {kind === 'song' && (
+            <View style={styles.panel}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Release & track</Text>
+                <Text style={styles.sectionMeta}>spotify</Text>
+              </View>
+              <View style={styles.metaGrid}>
+                <View style={styles.metaCell}>
+                  <Text style={styles.metaLabel}>Released</Text>
+                  <Text style={styles.metaValue}>{formatReleaseDate(item.albumReleaseDate) || '—'}</Text>
+                </View>
+                <View style={styles.metaCell}>
+                  <Text style={styles.metaLabel}>Duration</Text>
+                  <Text style={styles.metaValue}>{formatDurationMs(item.durationMs)}</Text>
+                </View>
+                <View style={[styles.metaCell, styles.metaCellWide]}>
+                  <Text style={styles.metaLabel}>Album</Text>
+                  <Text style={styles.metaValue}>{item.albumName || '—'}</Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {kind === 'song' && (
+            <View style={styles.panel}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Story & context</Text>
+                <Text style={styles.sectionMeta}>gemini</Text>
+              </View>
+              {enrichmentLoading ? (
+                <ActivityIndicator color={GREEN} style={{ marginVertical: 8 }} />
+              ) : enrichmentError ? (
+                <Text style={styles.mutedBlock}>{enrichmentError}</Text>
+              ) : enrichment ? (
+                <>
+                  <Text style={styles.body}>{enrichment.summary}</Text>
+                  {!!enrichment.releaseContext && (
+                    <Text style={styles.bodySecondary}>{enrichment.releaseContext}</Text>
+                  )}
+                  {!!enrichment.listeningNote && (
+                    <View style={styles.noteRow}>
+                      <Ionicons name="headset-outline" color={GOLD} size={18} />
+                      <Text style={styles.noteText}>{enrichment.listeningNote}</Text>
+                    </View>
+                  )}
+                  {!!enrichment.themes?.length && (
+                    <View style={styles.tagWrap}>
+                      {(enrichment.themes || []).map((t, i) => (
+                        <View key={`theme-${i}-${String(t)}`} style={styles.tag}>
+                          <Text style={styles.tagText}>{t}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {!!enrichment.moodTags?.length && (
+                    <View style={styles.tagWrap}>
+                      {(enrichment.moodTags || []).map((t, i) => (
+                        <View key={`mood-${i}-${String(t)}`} style={styles.tagMood}>
+                          <Text style={styles.tagMoodText}>{t}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {!!enrichment.facts?.length && (
+                    <View style={styles.factList}>
+                      {(enrichment.facts || []).map((fact, i) => (
+                        <View key={`${i}-${fact}`} style={styles.factRow}>
+                          <Text style={styles.factBullet}>•</Text>
+                          <Text style={styles.factText}>{fact}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <Text style={styles.aiDisclaimer}>AI-generated descriptions, not official lyrics or liner notes.</Text>
+                </>
+              ) : null}
+            </View>
+          )}
 
           {kind === 'artist' && (
             <View style={styles.panel}>
@@ -189,6 +335,25 @@ const styles = StyleSheet.create({
   sectionTitle: { color: TXT, fontSize: 18, fontWeight: '900' },
   sectionMeta: { color: MUTED, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   body: { color: TXT, lineHeight: 21, fontWeight: '700' },
+  bodySecondary: { color: MUTED, lineHeight: 20, fontWeight: '700', marginTop: 6 },
+  mutedBlock: { color: MUTED, lineHeight: 20 },
+  metaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  metaCell: { flex: 1, minWidth: '42%', backgroundColor: '#151D2A', borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 10 },
+  metaCellWide: { minWidth: '100%', flexBasis: '100%' },
+  metaLabel: { color: MUTED, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', marginBottom: 4 },
+  metaValue: { color: TXT, fontSize: 15, fontWeight: '800' },
+  noteRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 8 },
+  noteText: { color: GOLD, flex: 1, lineHeight: 20, fontWeight: '700' },
+  tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  tag: { backgroundColor: '#102516', borderWidth: 1, borderColor: '#285C38', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  tagText: { color: GREEN, fontSize: 12, fontWeight: '800' },
+  tagMood: { backgroundColor: '#2D2640', borderWidth: 1, borderColor: '#5B4B8A', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  tagMoodText: { color: VIOLET, fontSize: 12, fontWeight: '800' },
+  factList: { marginTop: 10, gap: 6 },
+  factRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  factBullet: { color: BLUE, fontWeight: '900' },
+  factText: { color: TXT, flex: 1, lineHeight: 20, fontWeight: '700' },
+  aiDisclaimer: { color: MUTED, fontSize: 11, fontStyle: 'italic', marginTop: 12, lineHeight: 16 },
   playRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
   playText: { color: TXT, fontWeight: '800' },
   detailGrid: { flexDirection: 'row', gap: 10 },
