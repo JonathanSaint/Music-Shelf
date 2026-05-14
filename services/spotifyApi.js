@@ -151,12 +151,16 @@ function buildReleasePlayRankings(tracksWithCounts, kind) {
       id,
       name: track.albumName,
       imageUrl: track.imageUrl,
+      // keep both fields for backwards compatibility, but make `score` derived later
       score: 0,
+      playCount: 0,
       trackIds: new Set(),
       artists: new Set(),
       kind,
     };
-    cur.score += track.playCount;
+
+    // Canonical release play total = summed plays of tracks in this release.
+    cur.playCount += track.playCount;
     cur.trackIds.add(track.id);
     (track.artists || []).forEach((artist) => cur.artists.add(artist.name));
     releases.set(id, cur);
@@ -167,6 +171,10 @@ function buildReleasePlayRankings(tracksWithCounts, kind) {
       const { trackIds, artists, ...rest } = release;
       return {
         ...rest,
+        // Canonical release plays
+        playCount: release.playCount,
+        // Keep `score` aligned with playCount so existing UI stays correct.
+        score: release.playCount,
         tracks: trackIds.size,
         artists: Array.from(artists).slice(0, 2).join(', '),
       };
@@ -178,18 +186,40 @@ function buildReleasePlayRankings(tracksWithCounts, kind) {
 export async function fetchSpotifyIdentityBundle(accessToken) {
   const oldest120d = Date.now() - 120 * 24 * 60 * 60 * 1000;
 
-  const [me, topArtistsGenreSeed, historyItems] = await Promise.all([
+  const [me, topArtistsGenreSeed, topTracksSeed, historyItems] = await Promise.all([
     spotifyGet('/me', accessToken),
     spotifyGet('/me/top/artists?limit=10&time_range=short_term', accessToken),
+    spotifyGet('/me/top/tracks?limit=10&time_range=short_term', accessToken),
     fetchRecentlyPlayedSince(accessToken, oldest120d),
   ]);
 
   const genreCount = {};
-  (topArtistsGenreSeed.items || []).forEach((a) => {
-    (a.genres || []).forEach((g) => {
-      genreCount[g] = (genreCount[g] || 0) + 1;
-    });
-  });
+
+  const seedArtists = topArtistsGenreSeed?.items || [];
+  // Primary: use Spotify “top artists” genre metadata.
+  for (const a of seedArtists) {
+    for (const g of a?.genres || []) {
+      const gg = String(g || '').trim();
+      if (!gg) continue;
+      genreCount[gg] = (genreCount[gg] || 0) + 1;
+    }
+  }
+
+  // Fallback: if Spotify provides no usable genre metadata for the artist seed,
+  // derive genres from the artists embedded in top tracks.
+  if (Object.keys(genreCount).length === 0) {
+    const seedTracks = topTracksSeed?.items || [];
+    for (const t of seedTracks) {
+      for (const a of t?.artists || []) {
+        for (const g of a?.genres || []) {
+          const gg = String(g || '').trim();
+          if (!gg) continue;
+          genreCount[gg] = (genreCount[gg] || 0) + 1;
+        }
+      }
+    }
+  }
+
   const genres = Object.entries(genreCount)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 12)

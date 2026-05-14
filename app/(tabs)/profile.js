@@ -1,22 +1,22 @@
+import { Image } from 'expo-image';
+import { router } from 'expo-router';
+import { deleteUser, signOut } from 'firebase/auth';
 import React from 'react';
 import {
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  ScrollView,
   ActivityIndicator,
   Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
-import { Image } from 'expo-image';
-import { signOut } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { useBumpSpotifySync, useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
 import { useAuth } from '../../hooks/useAuth';
-import { useSpotifySyncTick, useBumpSpotifySync } from '../../hooks/SpotifySyncContext';
 import { useSpotifyConnect } from '../../hooks/useSpotifyConnect';
-import { router } from 'expo-router';
-import { getPublicProfile, saveMusicInsight, syncSpotifyProfileToFirestore, disconnectSpotify } from '../../services/spotifyFirestore';
+import { auth } from '../../lib/firebase';
 import { generateMusicInsight } from '../../services/musicInsight';
+import { deleteFirebaseUserDoc, deleteSpotifyUserData, disconnectSpotify, getPublicProfile, saveMusicInsight, syncSpotifyProfileToFirestore } from '../../services/spotifyFirestore';
 
 const BG = '#0B0F14';
 const CARD = '#111826';
@@ -125,6 +125,7 @@ export default function ProfileTab() {
         style: 'destructive',
         onPress: async () => {
           try {
+            setProfile((p) => (p ? { ...p, spotify: null } : p));
             await disconnectSpotify(user.uid);
             bumpSync();
             await loadProfile();
@@ -139,6 +140,45 @@ export default function ProfileTab() {
   async function doLogout() {
     await signOut(auth);
     router.replace('/(auth)/login');
+  }
+
+  async function handleDeleteAccount() {
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account and all saved data from Music Shelf. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: async () => {
+            const currentUser = auth.currentUser;
+            if (!currentUser) {
+              Alert.alert('Delete Account', 'You are not signed in.');
+              return;
+            }
+
+            try {
+              await deleteSpotifyUserData(currentUser.uid);
+              await deleteFirebaseUserDoc(currentUser.uid);
+              await deleteUser(currentUser);
+              await signOut(auth);
+              router.replace('/(auth)/login');
+            } catch (e) {
+              const msg = e?.message || String(e);
+
+              if (/requires-recent-login/i.test(msg) || /recent login/i.test(msg)) {
+                Alert.alert('Delete Account', 'For security, please sign in again and try deletion once more.');
+                router.replace('/(auth)/login');
+                return;
+              }
+
+              Alert.alert('Delete Account', msg);
+            }
+          },
+        },
+      ]
+    );
   }
 
   const spotify = profile?.spotify;
@@ -167,6 +207,7 @@ export default function ProfileTab() {
             <Image source={{ uri: SPOTIFY_MARK }} style={[styles.bgMark, styles.bgMark2]} />
             <Image source={{ uri: SPOTIFY_MARK }} style={[styles.bgMark, styles.bgMark3]} />
           </View>
+
           {oauthBusy ? (
             <ActivityIndicator color="#06110A" style={{ zIndex: 1 }} />
           ) : (
@@ -174,7 +215,11 @@ export default function ProfileTab() {
               <Text style={styles.primaryText}>
                 {!hasClientId ? 'Add Spotify Client ID' : spotify ? 'Authorize with Spotify' : 'Connect Spotify'}
               </Text>
-              {!!spotify && <Text style={styles.primarySub}>Signed in as {spotify.displayName} · opens Spotify to allow access</Text>}
+              {!!spotify && (
+                <Text style={styles.primarySub}>
+                  Signed in as {spotify.displayName} · opens Spotify to allow access
+                </Text>
+              )}
             </View>
           )}
         </Pressable>
@@ -183,17 +228,11 @@ export default function ProfileTab() {
           onPress={handleRefreshFromSpotify}
           disabled={refreshing || !spotify}
           style={({ pressed }) => [styles.secondary, (refreshing || !spotify) && styles.disabled, pressed && styles.pressed]}>
-          {refreshing ? (
-            <ActivityIndicator color={TXT} />
-          ) : (
-            <Text style={styles.secondaryText}>Refresh from Spotify</Text>
-          )}
+          {refreshing ? <ActivityIndicator color={TXT} /> : <Text style={styles.secondaryText}>Refresh from Spotify</Text>}
         </Pressable>
 
         {!!spotify && (
-          <Pressable
-            onPress={handleDisconnectSpotify}
-            style={({ pressed }) => [styles.disconnect, pressed && styles.pressed]}>
+          <Pressable onPress={handleDisconnectSpotify} style={({ pressed }) => [styles.disconnect, pressed && styles.pressed]}>
             <Text style={styles.disconnectText}>Disconnect Spotify</Text>
           </Pressable>
         )}
@@ -270,7 +309,9 @@ export default function ProfileTab() {
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowTitle}>{item.track?.name}</Text>
-                  <Text style={styles.mutedSmall}>{(item.track?.artists || []).map((x) => x.name).join(', ')}</Text>
+                  <Text style={styles.mutedSmall}>
+                    {(item.track?.artists || []).map((x) => x.name).join(', ')}
+                  </Text>
                 </View>
               </View>
             ))}
@@ -284,6 +325,10 @@ export default function ProfileTab() {
 
       <Pressable onPress={() => router.push(`/profile/${user?.uid || 'demo'}`)} style={({ pressed }) => [styles.outline, pressed && styles.pressed]}>
         <Text style={styles.outlineText}>Preview public profile URL</Text>
+      </Pressable>
+
+      <Pressable onPress={handleDeleteAccount} style={({ pressed }) => [styles.deleteAccount, pressed && styles.pressed]}>
+        <Text style={styles.deleteAccountText}>Delete Account</Text>
       </Pressable>
 
       <Pressable onPress={doLogout} style={({ pressed }) => [styles.danger, pressed && styles.pressed]}>
@@ -323,15 +368,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(6, 17, 10, 0.35)',
   },
-  spotifyBgMarks: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  bgMark: {
-    position: 'absolute',
-    width: 88,
-    height: 88,
-    opacity: 0.14,
-  },
+  spotifyBgMarks: { ...StyleSheet.absoluteFillObject },
+  bgMark: { position: 'absolute', width: 88, height: 88, opacity: 0.14 },
   bgMark1: { top: -28, right: -12, transform: [{ rotate: '14deg' }] },
   bgMark2: { bottom: -36, left: 28, transform: [{ rotate: '-22deg' }] },
   bgMark3: { top: 8, left: -24, transform: [{ rotate: '38deg' }] },
@@ -354,6 +392,36 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
   },
   outlineText: { color: TXT, fontWeight: '700' },
+  disconnect: {
+    borderRadius: 999,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#5B1A24',
+    backgroundColor: '#2A0F14',
+  },
+  disconnectText: { color: '#FF9B9B', fontWeight: '800' },
+  deleteAccount: {
+    backgroundColor: '#2A0F14',
+    borderRadius: 999,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#5B1A24',
+    marginTop: 2,
+  },
+  deleteAccountText: { color: '#FF6B6B', fontWeight: '800' },
+  danger: {
+    backgroundColor: '#2A0F14',
+    borderRadius: 999,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#5B1A24',
+  },
+  dangerText: { color: '#FF6B6B', fontWeight: '800' },
+  pressed: { opacity: 0.85 },
+  disabled: { opacity: 0.55 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatar: { width: 72, height: 72, borderRadius: 36 },
   avatarPlaceholder: { backgroundColor: '#243246' },
@@ -366,24 +434,4 @@ const styles = StyleSheet.create({
   thumb: { width: 44, height: 44, borderRadius: 6 },
   thumbPlaceholder: { backgroundColor: '#243246' },
   rowTitle: { color: TXT, fontWeight: '600', flex: 1 },
-  disconnect: {
-    borderRadius: 999,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#5B1A24',
-    backgroundColor: '#2A0F14',
-  },
-  disconnectText: { color: '#FF9B9B', fontWeight: '800' },
-  danger: {
-    backgroundColor: '#2A0F14',
-    borderRadius: 999,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#5B1A24',
-  },
-  dangerText: { color: '#FF6B6B', fontWeight: '800' },
-  pressed: { opacity: 0.85 },
-  disabled: { opacity: 0.55 },
 });

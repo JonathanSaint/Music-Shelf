@@ -1,10 +1,10 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useAuth } from '../../hooks/useAuth';
 import { useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
+import { useAuth } from '../../hooks/useAuth';
 import { getPublicProfile } from '../../services/spotifyFirestore';
 
 const BG = '#080B10';
@@ -126,10 +126,36 @@ export default function StatsTab() {
   const spotify = profile?.spotify;
   const tracks = spotify?.topTracks || [];
   const artists = spotify?.topArtists || [];
-  const genreRows = (spotify?.genres || []).slice(0, 8).map((genre, index) => ({
+
+  // Top genre should be derived from Spotify artist metadata; fallback to `spotify.genres`
+  // only if we truly have no genre signals at all.
+  function deriveTopGenres(spotifyProfile) {
+    const direct = Array.isArray(spotifyProfile?.genres) ? spotifyProfile.genres : [];
+    const directClean = direct.map((g) => String(g || '').trim()).filter(Boolean);
+
+    const fromArtists = [];
+    for (const a of spotifyProfile?.topArtists || []) {
+      const gs = Array.isArray(a?.genres) ? a.genres : [];
+      for (const g of gs) {
+        const gg = String(g || '').trim();
+        if (gg) fromArtists.push(gg);
+      }
+    }
+
+    const counts = new Map();
+    const source = directClean.length ? directClean : fromArtists;
+    for (const g of source) counts.set(g, (counts.get(g) || 0) + 1);
+
+    const entries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+    return entries.slice(0, 8).map(([genre]) => genre);
+  }
+
+  const topGenres = deriveTopGenres(spotify);
+  const genreRows = topGenres.map((genre, index) => ({
     label: genre,
     value: Math.max(1, 8 - index),
   }));
+
   const topArtistCounts = countArtists(tracks);
   const maxGenre = Math.max(...genreRows.map((x) => x.value), 1);
   const recent = recentHours(spotify?.recentlyPlayed || []);

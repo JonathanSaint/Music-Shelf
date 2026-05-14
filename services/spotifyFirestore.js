@@ -1,14 +1,14 @@
 import {
-  doc,
-  setDoc,
-  getDoc,
-  serverTimestamp,
   deleteDoc,
   deleteField,
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { refreshSpotifyAccessToken } from './spotifyAuth';
 import { fetchSpotifyIdentityBundle, LISTENING_HISTORY_DAYS } from './spotifyApi';
+import { refreshSpotifyAccessToken } from './spotifyAuth';
 
 const clientId = () => process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID;
 
@@ -41,15 +41,31 @@ function addMovement(items = [], previousRanks) {
   });
 }
 
+function dedupeByIdOrName(items = []) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    const key = item?.id || item?.name;
+    if (!key) {
+      out.push(item);
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 function applyMovementToWindow(raw, prevWindow) {
   const safe = raw || { topTracks: [], topArtists: [], albumRankings: [], epRankings: [], singleRankings: [] };
   const prev = prevWindow || {};
   return {
-    topTracks: addMovement(safe.topTracks || [], previousRankMap(prev.topTracks || [])),
-    topArtists: addMovement(safe.topArtists || [], previousRankMap(prev.topArtists || [])),
-    albumRankings: addMovement(safe.albumRankings || [], previousRankMap(prev.albumRankings || [])),
-    epRankings: addMovement(safe.epRankings || [], previousRankMap(prev.epRankings || [])),
-    singleRankings: addMovement(safe.singleRankings || [], previousRankMap(prev.singleRankings || [])),
+    topTracks: addMovement(dedupeByIdOrName(safe.topTracks || []), previousRankMap(prev.topTracks || [])),
+    topArtists: addMovement(dedupeByIdOrName(safe.topArtists || []), previousRankMap(prev.topArtists || [])),
+    albumRankings: addMovement(dedupeByIdOrName(safe.albumRankings || []), previousRankMap(prev.albumRankings || [])),
+    epRankings: addMovement(dedupeByIdOrName(safe.epRankings || []), previousRankMap(prev.epRankings || [])),
+    singleRankings: addMovement(dedupeByIdOrName(safe.singleRankings || []), previousRankMap(prev.singleRankings || [])),
   };
 }
 
@@ -81,11 +97,37 @@ export async function getSpotifyTokens(uid) {
 
 export async function disconnectSpotify(uid) {
   if (!uid) return;
+
+  // Best-effort Spotify token revocation, then clear our local/server session data.
+  // This prevents “looks disconnected” cases where stored tokens still allow refresh/sync.
+  try {
+    const existing = await getSpotifyTokens(uid);
+    const cid = clientId();
+    const revokeEndpoint = 'https://accounts.spotify.com/api/revoke';
+
+    // Spotify accepts token revocation via standard OAuth2 revocation semantics.
+    // If the token is invalid/expired, Spotify may reject—ignore.
+    const revokeOne = async (token) => {
+      if (!token) return;
+      if (!cid) return; // cannot revoke without client_id
+      await fetch(revokeEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token, client_id: cid }).toString(),
+      }).catch(() => undefined);
+    };
+
+    await Promise.all([revokeOne(existing?.accessToken), revokeOne(existing?.refreshToken)]);
+  } catch {
+    // Never block disconnect on revocation failures.
+  }
+
   try {
     await deleteDoc(tokensRef(uid));
   } catch {
     /* doc may already be missing */
   }
+
   await setDoc(
     userRef(uid),
     {
@@ -199,4 +241,38 @@ export async function syncSpotifyProfileToFirestore(uid, firebaseUserEmail) {
   const bundle = await fetchSpotifyIdentityBundle(accessToken);
   await savePublicProfile(uid, firebaseUserEmail, bundle);
   return bundle;
+}
+
+export async function deleteSpotifyUserData(uid) {
+  if (!uid) return;
+
+  // Delete our stored Spotify token doc (if present)
+  try {
+    await deleteDoc(tokensRef(uid));
+  } catch {
+    /* ignore */
+  }
+
+  // Delete spotify data from the main user doc (merge-safe)
+  try {
+    await setDoc(
+      userRef(uid),
+      {
+        spotify: deleteField(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function deleteFirebaseUserDoc(uid) {
+  if (!uid) return;
+
+  // Delete entire user document (includes non-Spotify fields too)
+  // If your app stores more in /users/{uid}, this is correct.
+  // If you later decide to keep some fields, we can swap this to per-field deletes.
+  await deleteDoc(userRef(uid)).catch(() => undefined);
 }
