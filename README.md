@@ -15,10 +15,11 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    - Copy `.env.example` to `.env` and fill **Firebase** (`EXPO_PUBLIC_FIREBASE_*`) and **Spotify** `EXPO_PUBLIC_SPOTIFY_CLIENT_ID`.
    - In [Firebase Console](https://console.firebase.google.com), enable **Authentication** (Email/Password) and create a **Firestore** database. Deploy `firestore.rules` (or paste its contents in the Rules editor) so users can write only their own `users/{uid}` and `users/{uid}/private/*`.
 
-3. Spotify redirect URI
+3. Spotify redirect URI and web login
 
    - Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
    - On the **Profile** tab inside the app, copy the **Redirect URI** shown under “Add this exact Redirect URI…” and add it under **Redirect URIs** in the Spotify app settings. It differs between Expo Go, dev builds, and web.
+   - **Web:** Spotify’s token URL does not allow browser requests (CORS). This project exchanges codes through **`/api/spotify-token`** on your host (same pattern as AI insights). Host the exported web app on **Vercel** with the `api/` folder, set **`EXPO_PUBLIC_AI_API_BASE_URL`** to that deployment’s origin (or leave it empty if the app and API share the same origin), and register the **exact** web redirect URI Spotify shows for your site (for example `https://your-app.vercel.app/spotify-callback`).
 
 4. Start the app
 
