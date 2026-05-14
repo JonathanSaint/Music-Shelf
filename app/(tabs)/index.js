@@ -453,7 +453,7 @@ export default function HomeTab() {
           <ReleaseBoard title="Top EPs" tag={windowTag} releases={eps} kind="ep" />
           <ReleaseBoard title="Top singles" tag={windowTag} releases={singles} kind="single" />
 
-          <Text style={styles.creator}>Created by Jonathan Arinda</Text>
+          <Text style={styles.creator}>Created by Saint.J.Arinda</Text>
         </>
       )}
     </ScrollView>
