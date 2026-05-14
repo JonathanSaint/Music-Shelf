@@ -173,8 +173,8 @@ export default function ItemStats() {
               <Text style={styles.tileLabel}>current rank</Text>
             </View>
             <View style={styles.tile}>
-              <Text style={styles.tileValue}>{recentMatches.length}</Text>
-              <Text style={styles.tileLabel}>recent plays</Text>
+              <Text style={styles.tileValue}>{item.playCount != null ? item.playCount : recentMatches.length}</Text>
+              <Text style={styles.tileLabel}>{item.playCount != null ? 'plays (window)' : 'recent plays'}</Text>
             </View>
             <View style={styles.tile}>
               <Text style={styles.tileValue}>{minutes}</Text>
@@ -272,8 +272,8 @@ export default function ItemStats() {
               </Text>
               <View style={styles.detailGrid}>
                 <View style={styles.detailPill}>
-                  <Text style={styles.detailValue}>{item.popularity || 0}</Text>
-                  <Text style={styles.detailLabel}>popularity</Text>
+                  <Text style={styles.detailValue}>{item.playCount != null ? item.playCount : item.popularity || 0}</Text>
+                  <Text style={styles.detailLabel}>{item.playCount != null ? 'your plays' : 'popularity'}</Text>
                 </View>
                 <View style={styles.detailPill}>
                   <Text style={styles.detailValue}>{item.followers ? item.followers.toLocaleString() : '-'}</Text>

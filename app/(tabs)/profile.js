@@ -12,10 +12,10 @@ import { Image } from 'expo-image';
 import { signOut } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
 import { useAuth } from '../../hooks/useAuth';
-import { useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
+import { useSpotifySyncTick, useBumpSpotifySync } from '../../hooks/SpotifySyncContext';
 import { useSpotifyConnect } from '../../hooks/useSpotifyConnect';
 import { router } from 'expo-router';
-import { getPublicProfile, saveMusicInsight, syncSpotifyProfileToFirestore } from '../../services/spotifyFirestore';
+import { getPublicProfile, saveMusicInsight, syncSpotifyProfileToFirestore, disconnectSpotify } from '../../services/spotifyFirestore';
 import { generateMusicInsight } from '../../services/musicInsight';
 
 const BG = '#0B0F14';
@@ -31,6 +31,7 @@ const SPOTIFY_MARK =
 export default function ProfileTab() {
   const { user } = useAuth();
   const syncTick = useSpotifySyncTick();
+  const bumpSync = useBumpSpotifySync();
   const [profile, setProfile] = React.useState(null);
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
@@ -59,8 +60,9 @@ export default function ProfileTab() {
 
   const onSpotifyDone = React.useCallback(() => {
     setOauthBusy(false);
+    bumpSync();
     loadProfile();
-  }, [loadProfile]);
+  }, [loadProfile, bumpSync]);
 
   const onSpotifyErr = React.useCallback((err) => {
     setOauthBusy(false);
@@ -106,11 +108,32 @@ export default function ProfileTab() {
         console.warn('AI insight skipped:', aiError?.message || aiError);
       }
       await loadProfile();
+      bumpSync();
     } catch (e) {
       Alert.alert('Refresh', e?.message || String(e));
     } finally {
       setRefreshing(false);
     }
+  }
+
+  async function handleDisconnectSpotify() {
+    if (!user?.uid) return;
+    Alert.alert('Disconnect Spotify', 'Remove Spotify from Music Shelf? You can connect again anytime.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Disconnect',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await disconnectSpotify(user.uid);
+            bumpSync();
+            await loadProfile();
+          } catch (e) {
+            Alert.alert('Spotify', e?.message || String(e));
+          }
+        },
+      },
+    ]);
   }
 
   async function doLogout() {
@@ -149,23 +172,31 @@ export default function ProfileTab() {
           ) : (
             <View style={styles.spotifyBtnInner}>
               <Text style={styles.primaryText}>
-                {!hasClientId ? 'Add Spotify Client ID' : spotify ? 'Connected to Spotify' : 'Connect Spotify'}
+                {!hasClientId ? 'Add Spotify Client ID' : spotify ? 'Authorize with Spotify' : 'Connect Spotify'}
               </Text>
-              {!!spotify && <Text style={styles.primarySub}>{spotify.displayName}</Text>}
+              {!!spotify && <Text style={styles.primarySub}>Signed in as {spotify.displayName} · opens Spotify to allow access</Text>}
             </View>
           )}
         </Pressable>
 
         <Pressable
           onPress={handleRefreshFromSpotify}
-          disabled={refreshing}
-          style={({ pressed }) => [styles.secondary, refreshing && styles.disabled, pressed && styles.pressed]}>
+          disabled={refreshing || !spotify}
+          style={({ pressed }) => [styles.secondary, (refreshing || !spotify) && styles.disabled, pressed && styles.pressed]}>
           {refreshing ? (
             <ActivityIndicator color={TXT} />
           ) : (
             <Text style={styles.secondaryText}>Refresh from Spotify</Text>
           )}
         </Pressable>
+
+        {!!spotify && (
+          <Pressable
+            onPress={handleDisconnectSpotify}
+            style={({ pressed }) => [styles.disconnect, pressed && styles.pressed]}>
+            <Text style={styles.disconnectText}>Disconnect Spotify</Text>
+          </Pressable>
+        )}
       </View>
 
       {loadingProfile ? (
@@ -200,7 +231,10 @@ export default function ProfileTab() {
                 ) : (
                   <View style={[styles.thumb, styles.thumbPlaceholder]} />
                 )}
-                <Text style={styles.rowTitle}>{a.name}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle}>{a.name}</Text>
+                  {!!a.playCount && <Text style={styles.mutedSmall}>{a.playCount} plays (last 30 days)</Text>}
+                </View>
               </View>
             ))}
           </View>
@@ -216,7 +250,10 @@ export default function ProfileTab() {
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowTitle}>{t.name}</Text>
-                  <Text style={styles.mutedSmall}>{(t.artists || []).map((x) => x.name).join(', ')}</Text>
+                  <Text style={styles.mutedSmall}>
+                    {(t.artists || []).map((x) => x.name).join(', ')}
+                    {t.playCount > 0 ? ` · ${t.playCount} plays` : ''}
+                  </Text>
                 </View>
               </View>
             ))}
@@ -329,6 +366,15 @@ const styles = StyleSheet.create({
   thumb: { width: 44, height: 44, borderRadius: 6 },
   thumbPlaceholder: { backgroundColor: '#243246' },
   rowTitle: { color: TXT, fontWeight: '600', flex: 1 },
+  disconnect: {
+    borderRadius: 999,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#5B1A24',
+    backgroundColor: '#2A0F14',
+  },
+  disconnectText: { color: '#FF9B9B', fontWeight: '800' },
   danger: {
     backgroundColor: '#2A0F14',
     borderRadius: 999,

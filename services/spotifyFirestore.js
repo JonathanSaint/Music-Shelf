@@ -3,10 +3,12 @@ import {
   setDoc,
   getDoc,
   serverTimestamp,
+  deleteDoc,
+  deleteField,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { refreshSpotifyAccessToken } from './spotifyAuth';
-import { fetchSpotifyIdentityBundle } from './spotifyApi';
+import { fetchSpotifyIdentityBundle, LISTENING_HISTORY_DAYS } from './spotifyApi';
 
 const clientId = () => process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID;
 
@@ -20,39 +22,6 @@ function tokensRef(uid) {
 
 function userRef(uid) {
   return doc(db, 'users', uid);
-}
-
-function releaseKindFromTrack(track) {
-  const totalTracks = Number(track?.albumTotalTracks || 0);
-  if (track?.albumType === 'album') return 'album';
-  if (totalTracks >= 4 && totalTracks <= 6) return 'ep';
-  return 'single';
-}
-
-function buildReleaseRankings(topTracks = [], kind = 'album') {
-  const releases = new Map();
-  topTracks.forEach((track, index) => {
-    if (!track.albumName || releaseKindFromTrack(track) !== kind) return;
-    const id = track.albumId || track.albumName;
-    const current = releases.get(id) || {
-      id,
-      name: track.albumName,
-      imageUrl: track.imageUrl,
-      score: 0,
-      tracks: 0,
-      artists: new Set(),
-      kind,
-    };
-    current.score += Math.max(1, 12 - index);
-    current.tracks += 1;
-    (track.artists || []).forEach((artist) => current.artists.add(artist.name));
-    releases.set(id, current);
-  });
-
-  return Array.from(releases.values())
-    .map((release) => ({ ...release, artists: Array.from(release.artists).slice(0, 2).join(', ') }))
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
-    .slice(0, 5);
 }
 
 function previousRankMap(items = []) {
@@ -70,6 +39,18 @@ function addMovement(items = [], previousRanks) {
       rankChange: previousRank ? previousRank - currentRank : null,
     };
   });
+}
+
+function applyMovementToWindow(raw, prevWindow) {
+  const safe = raw || { topTracks: [], topArtists: [], albumRankings: [], epRankings: [], singleRankings: [] };
+  const prev = prevWindow || {};
+  return {
+    topTracks: addMovement(safe.topTracks || [], previousRankMap(prev.topTracks || [])),
+    topArtists: addMovement(safe.topArtists || [], previousRankMap(prev.topArtists || [])),
+    albumRankings: addMovement(safe.albumRankings || [], previousRankMap(prev.albumRankings || [])),
+    epRankings: addMovement(safe.epRankings || [], previousRankMap(prev.epRankings || [])),
+    singleRankings: addMovement(safe.singleRankings || [], previousRankMap(prev.singleRankings || [])),
+  };
 }
 
 export async function saveSpotifyTokens(uid, tokenJson) {
@@ -98,14 +79,42 @@ export async function getSpotifyTokens(uid) {
   return snap.data();
 }
 
+export async function disconnectSpotify(uid) {
+  if (!uid) return;
+  try {
+    await deleteDoc(tokensRef(uid));
+  } catch {
+    /* doc may already be missing */
+  }
+  await setDoc(
+    userRef(uid),
+    {
+      spotify: deleteField(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
 export async function savePublicProfile(uid, firebaseUserEmail, bundle) {
   const existingSnap = await getDoc(userRef(uid));
   const existingSpotify = snapshotExists(existingSnap) ? existingSnap.data()?.spotify : null;
-  const albumRankings = buildReleaseRankings(bundle.topTracks, 'album');
-  const epRankings = buildReleaseRankings(bundle.topTracks, 'ep');
-  const singleRankings = buildReleaseRankings(bundle.topTracks, 'single');
-  const topTracks = addMovement(bundle.topTracks, previousRankMap(existingSpotify?.topTracks || []));
-  const albumsWithMovement = addMovement(albumRankings, previousRankMap(existingSpotify?.albumRankings || []));
+  const prevByWindow = existingSpotify?.playStatsByWindow || {};
+
+  const playStatsByWindow = {};
+  for (const days of LISTENING_HISTORY_DAYS) {
+    const key = String(days);
+    const raw = bundle.playStatsByWindow?.[key] || {
+      topTracks: [],
+      topArtists: [],
+      albumRankings: [],
+      epRankings: [],
+      singleRankings: [],
+    };
+    playStatsByWindow[key] = applyMovementToWindow(raw, prevByWindow[key]);
+  }
+
+  const w30 = playStatsByWindow['30'];
 
   await setDoc(
     userRef(uid),
@@ -120,11 +129,12 @@ export async function savePublicProfile(uid, firebaseUserEmail, bundle) {
         id: bundle.spotifyUserId,
         displayName: bundle.displayName,
         imageUrl: bundle.imageUrl,
-        topArtists: bundle.topArtists,
-        topTracks,
-        albumRankings: albumsWithMovement,
-        epRankings,
-        singleRankings,
+        topArtists: w30.topArtists,
+        topTracks: w30.topTracks,
+        albumRankings: w30.albumRankings,
+        epRankings: w30.epRankings,
+        singleRankings: w30.singleRankings,
+        playStatsByWindow,
         genres: bundle.genres,
         recentlyPlayed: bundle.recentlyPlayed,
         updatedAt: serverTimestamp(),

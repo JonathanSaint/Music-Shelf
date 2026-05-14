@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
 import { getPublicProfile } from '../../services/spotifyFirestore';
+import { LISTENING_HISTORY_DAYS } from '../../services/spotifyApi';
 
 const BG = '#080B10';
 const PANEL = '#101722';
@@ -52,6 +53,27 @@ function moodStory({ genres = [], recent = [], tracks = [] }) {
   return {
     title: 'Balanced shelf',
     body: `Your listening has been spread across ${topGenre}, with ${leadArtist} near the center.`,
+  };
+}
+
+function getWindowStats(spotify, days) {
+  const key = String(days);
+  const w = spotify?.playStatsByWindow?.[key];
+  if (w) {
+    return {
+      topTracks: w.topTracks || [],
+      topArtists: w.topArtists || [],
+      albumRankings: w.albumRankings || [],
+      epRankings: w.epRankings || [],
+      singleRankings: w.singleRankings || [],
+    };
+  }
+  return {
+    topTracks: spotify?.topTracks || [],
+    topArtists: spotify?.topArtists || [],
+    albumRankings: spotify?.albumRankings || [],
+    epRankings: spotify?.epRankings || [],
+    singleRankings: spotify?.singleRankings || [],
   };
 }
 
@@ -174,7 +196,8 @@ function ReleaseBoard({ title, tag, releases, kind }) {
             item={release}
             rank={index + 1}
             subtitle={release.artists || `${release.tracks} tracks`}
-            meta={`${release.score} pts`}
+            meta={`${release.score} plays`}
+            showMovement
             onPress={() => router.push(`/item/${kind}?id=${encodeURIComponent(release.id || release.name)}`)}
           />
         ))}
@@ -188,6 +211,7 @@ export default function HomeTab() {
   const syncTick = useSpotifySyncTick();
   const [profile, setProfile] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  const [listenDays, setListenDays] = React.useState(30);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -211,11 +235,14 @@ export default function HomeTab() {
   }, [user?.uid, syncTick]);
 
   const spotify = profile?.spotify;
-  const topTracks = spotify?.topTracks || [];
-  const albums = spotify?.albumRankings || getAlbumRankings(topTracks);
-  const eps = spotify?.epRankings || getReleaseRankings(topTracks, 'ep');
-  const singles = spotify?.singleRankings || getReleaseRankings(topTracks, 'single');
+  const windowStats = React.useMemo(() => getWindowStats(spotify, listenDays), [spotify, listenDays]);
+  const topTracks = windowStats.topTracks || [];
+  const topArtists = windowStats.topArtists || [];
+  const albums = windowStats.albumRankings?.length ? windowStats.albumRankings : getAlbumRankings(topTracks);
+  const eps = windowStats.epRankings?.length ? windowStats.epRankings : getReleaseRankings(topTracks, 'ep');
+  const singles = windowStats.singleRankings?.length ? windowStats.singleRankings : getReleaseRankings(topTracks, 'single');
   const topGenres = spotify?.genres?.slice(0, 4) || [];
+  const windowTag = `last ${listenDays} days · plays`;
   const story = displayStory(spotify, moodStory({ genres: spotify?.genres || [], recent: spotify?.recentlyPlayed || [], tracks: topTracks }));
 
   return (
@@ -258,6 +285,25 @@ export default function HomeTab() {
             </View>
           </View>
 
+          <View style={styles.windowBlock}>
+            <Text style={styles.windowLabel}>Listening window</Text>
+            <View style={styles.windowRow}>
+              {LISTENING_HISTORY_DAYS.map((d) => (
+                <Pressable
+                  key={d}
+                  onPress={() => setListenDays(d)}
+                  style={({ pressed }) => [
+                    styles.windowPill,
+                    listenDays === d && styles.windowPillActive,
+                    pressed && styles.pressed,
+                  ]}>
+                  <Text style={[styles.windowPillText, listenDays === d && styles.windowPillTextActive]}>{d} days</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.windowHint}>Ranks count plays from your Spotify history in this period.</Text>
+          </View>
+
           {!!topGenres.length && (
             <View style={styles.genreRail}>
               {topGenres.map((genre) => (
@@ -282,8 +328,25 @@ export default function HomeTab() {
           </Pressable>
 
           <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Top artists</Text>
+            <Text style={styles.sectionTag}>{windowTag}</Text>
+          </View>
+          <View style={styles.panel}>
+            {topArtists.slice(0, 5).map((artist, index) => (
+              <RankedRow
+                key={artist.id || `${artist.name}-${index}`}
+                item={artist}
+                rank={index + 1}
+                subtitle={`${artist.playCount || 0} plays`}
+                showMovement
+                onPress={() => router.push(`/item/artist?id=${encodeURIComponent(artist.id || artist.name)}`)}
+              />
+            ))}
+          </View>
+
+          <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Top songs</Text>
-            <Text style={styles.sectionTag}>short term</Text>
+            <Text style={styles.sectionTag}>{windowTag}</Text>
           </View>
           <View style={styles.panel}>
             {topTracks.slice(0, 5).map((track, index) => (
@@ -292,7 +355,7 @@ export default function HomeTab() {
                 item={track}
                 rank={index + 1}
                 subtitle={artistLine(track)}
-                meta={index === 0 ? 'crown' : null}
+                meta={track.playCount > 0 ? `${track.playCount} plays` : null}
                 showMovement
                 onPress={() => router.push(`/item/song?id=${encodeURIComponent(track.id || track.name)}`)}
               />
@@ -301,7 +364,7 @@ export default function HomeTab() {
 
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Album board</Text>
-            <Text style={styles.sectionTag}>from top tracks</Text>
+            <Text style={styles.sectionTag}>{windowTag}</Text>
           </View>
           <View style={styles.albumGrid}>
             {albums.map((album, index) => (
@@ -315,13 +378,16 @@ export default function HomeTab() {
                 </View>
                 {album.imageUrl ? <Image source={{ uri: album.imageUrl }} style={styles.albumArt} /> : <View style={[styles.albumArt, styles.coverFallback]} />}
                 <Text numberOfLines={2} style={styles.albumName}>{album.name}</Text>
-                <Text numberOfLines={1} style={styles.albumArtist}>{album.artists || `${album.tracks} tracks`}</Text>
+                <Text numberOfLines={1} style={styles.albumArtist}>
+                  {album.artists || `${album.tracks} tracks`}
+                  {album.score > 0 ? ` · ${album.score} plays` : ''}
+                </Text>
               </Pressable>
             ))}
           </View>
 
-          <ReleaseBoard title="Top EPs" tag="from top tracks" releases={eps} kind="ep" />
-          <ReleaseBoard title="Top singles" tag="from top tracks" releases={singles} kind="single" />
+          <ReleaseBoard title="Top EPs" tag={windowTag} releases={eps} kind="ep" />
+          <ReleaseBoard title="Top singles" tag={windowTag} releases={singles} kind="single" />
 
           <Text style={styles.creator}>Created by Jonathan Arinda</Text>
         </>
@@ -344,6 +410,21 @@ const styles = StyleSheet.create({
   cta: { alignSelf: 'flex-start', backgroundColor: GREEN, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, marginTop: 4 },
   ctaText: { color: '#07120B', fontWeight: '900' },
   scoreGrid: { flexDirection: 'row', gap: 10 },
+  windowBlock: { gap: 8 },
+  windowLabel: { color: MUTED, fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
+  windowRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  windowPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: PANEL,
+  },
+  windowPillActive: { borderColor: GREEN, backgroundColor: '#102516' },
+  windowPillText: { color: MUTED, fontWeight: '800', fontSize: 13 },
+  windowPillTextActive: { color: GREEN },
+  windowHint: { color: MUTED, fontSize: 12, lineHeight: 17 },
   scoreCard: { flex: 1, minHeight: 88, backgroundColor: PANEL, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 12, justifyContent: 'space-between' },
   scoreValue: { color: TXT, fontSize: 26, fontWeight: '900' },
   scoreLabel: { color: MUTED, fontSize: 12, fontWeight: '700' },

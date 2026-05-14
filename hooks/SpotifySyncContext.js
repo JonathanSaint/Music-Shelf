@@ -4,11 +4,17 @@ import { syncSpotifyProfileToFirestore } from '../services/spotifyFirestore';
 
 const SpotifySyncContext = React.createContext({
   syncTick: 0,
+  bumpSync: () => {},
 });
 
 export function useSpotifySyncTick() {
   const ctx = React.useContext(SpotifySyncContext);
   return ctx?.syncTick ?? 0;
+}
+
+export function useBumpSpotifySync() {
+  const ctx = React.useContext(SpotifySyncContext);
+  return ctx?.bumpSync ?? (() => {});
 }
 
 /** Background Spotify → Firestore sync on mount, every 10 minutes, and when the app tab / page becomes active again. */
@@ -65,7 +71,11 @@ export function SpotifySyncProvider({ uid, email, children }) {
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [runBackgroundSync]);
 
-  const value = React.useMemo(() => ({ syncTick }), [syncTick]);
+  const bumpSync = React.useCallback(() => {
+    setSyncTick((t) => t + 1);
+  }, []);
+
+  const value = React.useMemo(() => ({ syncTick, bumpSync }), [syncTick, bumpSync]);
 
   return <SpotifySyncContext.Provider value={value}>{children}</SpotifySyncContext.Provider>;
 }

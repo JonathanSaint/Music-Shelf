@@ -1,5 +1,9 @@
 const API = 'https://api.spotify.com/v1';
 
+const LISTENING_HISTORY_DAYS = [30, 80, 120];
+const RECENT_PAGE_DELAY_MS = 120;
+const MAX_RECENT_PAGES = 40;
+
 async function parseJson(res) {
   const text = await res.text();
   try {
@@ -28,16 +32,160 @@ export async function spotifyGet(path, accessToken) {
   return data;
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Paginate recently played until older than `oldestMs` or no more pages.
+ */
+export async function fetchRecentlyPlayedSince(accessToken, oldestMs) {
+  const collected = [];
+  let before;
+  for (let page = 0; page < MAX_RECENT_PAGES; page += 1) {
+    const qs = new URLSearchParams({ limit: '50' });
+    if (before) qs.set('before', before);
+    const data = await spotifyGet(`/me/player/recently-played?${qs}`, accessToken);
+    const items = data.items || [];
+    if (!items.length) break;
+
+    for (const item of items) {
+      const playedAt = new Date(item.played_at).getTime();
+      if (playedAt >= oldestMs) collected.push(item);
+    }
+
+    const last = items[items.length - 1];
+    const oldestInPage = new Date(last.played_at).getTime();
+    before = last.played_at;
+    if (oldestInPage < oldestMs) break;
+    if (items.length < 50) break;
+    await sleep(RECENT_PAGE_DELAY_MS);
+  }
+  return collected;
+}
+
+function releaseKindFromTrack(track) {
+  const totalTracks = Number(track?.albumTotalTracks || 0);
+  if (track?.albumType === 'album') return 'album';
+  if (totalTracks >= 4 && totalTracks <= 6) return 'ep';
+  return 'single';
+}
+
+function mapApiTrackToShape(t) {
+  if (!t?.id) return null;
+  return {
+    id: t.id,
+    name: t.name,
+    previewUrl: t.preview_url || null,
+    durationMs: t.duration_ms || 0,
+    artists: (t.artists || []).map((x) => ({ id: x.id, name: x.name })),
+    albumId: t.album?.id || null,
+    albumName: t.album?.name || '',
+    albumType: t.album?.album_type || null,
+    albumTotalTracks: t.album?.total_tracks || null,
+    albumReleaseDate: t.album?.release_date || null,
+    imageUrl: t.album?.images?.[0]?.url || null,
+  };
+}
+
+/**
+ * Build play-count rankings for one time window from recently-played items.
+ */
+export function buildPlayStatsFromHistory(items) {
+  const trackCounts = new Map();
+  const artistCounts = new Map();
+
+  for (const item of items) {
+    const t = item.track;
+    const mapped = mapApiTrackToShape(t);
+    if (!mapped) continue;
+
+    trackCounts.set(mapped.id, (trackCounts.get(mapped.id) || 0) + 1);
+
+    for (const a of mapped.artists) {
+      if (!a.id) continue;
+      const cur = artistCounts.get(a.id) || { id: a.id, name: a.name, playCount: 0, imageUrl: null };
+      cur.playCount += 1;
+      if (!cur.imageUrl && mapped.imageUrl) cur.imageUrl = mapped.imageUrl;
+      artistCounts.set(a.id, cur);
+    }
+  }
+
+  const topTracks = Array.from(trackCounts.entries())
+    .map(([id, count]) => {
+      const sample = items.find((it) => it.track?.id === id)?.track;
+      const base = mapApiTrackToShape(sample);
+      return base ? { ...base, playCount: count, score: count } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.playCount - a.playCount || a.name.localeCompare(b.name))
+    .slice(0, 20);
+
+  const topArtists = Array.from(artistCounts.values())
+    .sort((a, b) => b.playCount - a.playCount || a.name.localeCompare(b.name))
+    .slice(0, 20)
+    .map(({ id, name, playCount, imageUrl }) => ({
+      id,
+      name,
+      imageUrl,
+      genres: [],
+      popularity: 0,
+      followers: 0,
+      playCount,
+      score: playCount,
+    }));
+
+  const albumRankings = buildReleasePlayRankings(topTracks, 'album');
+  const epRankings = buildReleasePlayRankings(topTracks, 'ep');
+  const singleRankings = buildReleasePlayRankings(topTracks, 'single');
+
+  return { topTracks, topArtists, albumRankings, epRankings, singleRankings };
+}
+
+function buildReleasePlayRankings(tracksWithCounts, kind) {
+  const releases = new Map();
+  for (const track of tracksWithCounts) {
+    if (!track.albumName || releaseKindFromTrack(track) !== kind) continue;
+    const id = track.albumId || track.albumName;
+    const cur = releases.get(id) || {
+      id,
+      name: track.albumName,
+      imageUrl: track.imageUrl,
+      score: 0,
+      trackIds: new Set(),
+      artists: new Set(),
+      kind,
+    };
+    cur.score += track.playCount;
+    cur.trackIds.add(track.id);
+    (track.artists || []).forEach((artist) => cur.artists.add(artist.name));
+    releases.set(id, cur);
+  }
+
+  return Array.from(releases.values())
+    .map((release) => {
+      const { trackIds, artists, ...rest } = release;
+      return {
+        ...rest,
+        tracks: trackIds.size,
+        artists: Array.from(artists).slice(0, 2).join(', '),
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, 5);
+}
+
 export async function fetchSpotifyIdentityBundle(accessToken) {
-  const [me, topArtists, topTracks, recent] = await Promise.all([
+  const oldest120d = Date.now() - 120 * 24 * 60 * 60 * 1000;
+
+  const [me, topArtistsGenreSeed, historyItems] = await Promise.all([
     spotifyGet('/me', accessToken),
     spotifyGet('/me/top/artists?limit=10&time_range=short_term', accessToken),
-    spotifyGet('/me/top/tracks?limit=10&time_range=short_term', accessToken),
-    spotifyGet('/me/player/recently-played?limit=10', accessToken),
+    fetchRecentlyPlayedSince(accessToken, oldest120d),
   ]);
 
   const genreCount = {};
-  (topArtists.items || []).forEach((a) => {
+  (topArtistsGenreSeed.items || []).forEach((a) => {
     (a.genres || []).forEach((g) => {
       genreCount[g] = (genreCount[g] || 0) + 1;
     });
@@ -50,47 +198,34 @@ export async function fetchSpotifyIdentityBundle(accessToken) {
   const images = me.images || [];
   const imageUrl = images[0]?.url || null;
 
+  const playStatsByWindow = {};
+  for (const days of LISTENING_HISTORY_DAYS) {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const windowItems = historyItems.filter((it) => new Date(it.played_at).getTime() >= cutoff);
+    playStatsByWindow[String(days)] = buildPlayStatsFromHistory(windowItems);
+  }
+
+  const defaultWindow = playStatsByWindow['30'];
+  const recentlyPlayed = historyItems.slice(0, 15).map((item) => ({
+    playedAt: item.played_at,
+    track: mapApiTrackToShape(item.track),
+  }));
+
   return {
     spotifyUserId: me.id,
     displayName: me.display_name || me.id,
     email: me.email || null,
     imageUrl,
-    topArtists: (topArtists.items || []).map((a) => ({
-      id: a.id,
-      name: a.name,
-      imageUrl: a.images?.[0]?.url || null,
-      genres: a.genres || [],
-      popularity: a.popularity || 0,
-      followers: a.followers?.total || 0,
-    })),
-    topTracks: (topTracks.items || []).map((t) => ({
-      id: t.id,
-      name: t.name,
-      previewUrl: t.preview_url || null,
-      durationMs: t.duration_ms || 0,
-      artists: (t.artists || []).map((x) => ({ id: x.id, name: x.name })),
-      albumId: t.album?.id || null,
-      albumName: t.album?.name || '',
-      albumType: t.album?.album_type || null,
-      albumTotalTracks: t.album?.total_tracks || null,
-      albumReleaseDate: t.album?.release_date || null,
-      imageUrl: t.album?.images?.[0]?.url || null,
-    })),
+    topArtists: defaultWindow.topArtists,
+    topTracks: defaultWindow.topTracks,
+    albumRankings: defaultWindow.albumRankings,
+    epRankings: defaultWindow.epRankings,
+    singleRankings: defaultWindow.singleRankings,
+    playStatsByWindow,
     genres,
-    recentlyPlayed: (recent.items || []).map((item) => ({
-      playedAt: item.played_at,
-      track: {
-        id: item.track?.id,
-        name: item.track?.name,
-        durationMs: item.track?.duration_ms || 0,
-        artists: (item.track?.artists || []).map((x) => ({ name: x.name })),
-        albumId: item.track?.album?.id || null,
-        albumName: item.track?.album?.name || '',
-        albumType: item.track?.album?.album_type || null,
-        albumTotalTracks: item.track?.album?.total_tracks || null,
-        imageUrl: item.track?.album?.images?.[0]?.url || null,
-      },
-    })),
+    recentlyPlayed,
     rawMe: me,
   };
 }
+
+export { LISTENING_HISTORY_DAYS };

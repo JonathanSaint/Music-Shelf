@@ -14,6 +14,7 @@ function compactTrack(track) {
     albumName: track?.albumName || '',
     durationMs: track?.durationMs || 0,
     rankChange: track?.rankChange || 0,
+    playCount: track?.playCount ?? track?.score ?? 0,
   };
 }
 
@@ -44,6 +45,7 @@ function buildMusicSnapshot(spotify = {}) {
     topArtists: (spotify.topArtists || []).slice(0, 8).map((artist) => ({
       name: artist?.name || '',
       genres: (artist?.genres || []).slice(0, 4),
+      playCount: artist?.playCount ?? artist?.score ?? 0,
     })),
     albumRankings: (spotify.albumRankings || []).slice(0, 5).map(compactRelease),
     epRankings: (spotify.epRankings || []).slice(0, 5).map(compactRelease),

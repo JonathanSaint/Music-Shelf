@@ -36,6 +36,8 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
       redirectUri,
       responseType: ResponseType.Code,
       usePKCE: true,
+      /** Always show Spotify’s allow screen instead of silently reusing an existing browser session. */
+      extraParams: { show_dialog: 'true' },
     },
     spotifyDiscovery
   );
