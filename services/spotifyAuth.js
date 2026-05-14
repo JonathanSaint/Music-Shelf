@@ -8,6 +8,8 @@ export const SPOTIFY_SCOPES = [
   'user-read-private',
   'user-top-read',
   'user-read-recently-played',
+  'user-read-playback-state',
+  'user-read-currently-playing',
 ];
 
 export const spotifyDiscovery = {

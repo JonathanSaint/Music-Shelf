@@ -1,12 +1,13 @@
-import React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useAuth } from '../../hooks/useAuth';
+import React, { useEffect } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import WelcomePopup from '../../components/WelcomePopup';
 import { useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
-import { getPublicProfile } from '../../services/spotifyFirestore';
+import { useAuth } from '../../hooks/useAuth';
 import { LISTENING_HISTORY_DAYS } from '../../services/spotifyApi';
+import { getPublicProfile } from '../../services/spotifyFirestore';
 
 const BG = '#080B10';
 const PANEL = '#101722';
@@ -212,6 +213,29 @@ export default function HomeTab() {
   const [profile, setProfile] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [listenDays, setListenDays] = React.useState(30);
+  const [showWelcome, setShowWelcome] = React.useState(false);
+  const [currentlyPlaying, setCurrentlyPlaying] = React.useState(null);
+  const welcomeShownRef = React.useRef(false);
+
+  // Show welcome popup on first load after login
+  useEffect(() => {
+    if (user && !welcomeShownRef.current && profile?.spotify) {
+      welcomeShownRef.current = true;
+      // Small delay for smoother experience
+      setTimeout(() => setShowWelcome(true), 500);
+    }
+  }, [user, profile]);
+
+  // Fetch currently playing track
+  React.useEffect(() => {
+    if (!profile?.spotify) return;
+    
+    // Check for currently playing from recently played
+    const recent = profile.spotify.recentlyPlayed;
+    if (recent && recent.length > 0) {
+      setCurrentlyPlaying(recent[0]);
+    }
+  }, [profile]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -257,6 +281,13 @@ export default function HomeTab() {
         </Pressable>
       </View>
 
+      {/* Welcome Popup */}
+      <WelcomePopup
+        userName={spotify?.displayName || user?.displayName || user?.email?.split('@')[0]}
+        isVisible={showWelcome}
+        onHide={() => setShowWelcome(false)}
+      />
+
       {loading ? (
         <ActivityIndicator color={GREEN} style={{ marginTop: 24 }} />
       ) : !spotify ? (
@@ -270,6 +301,39 @@ export default function HomeTab() {
         </View>
       ) : (
         <>
+          {/* Currently Playing Card */}
+          {currentlyPlaying?.track && (
+            <View style={styles.nowPlayingCard}>
+              <View style={styles.nowPlayingHeader}>
+                <View style={styles.nowPlayingIcon}>
+                  <Ionicons name="musical-note" size={14} color="#69E58D" />
+                  <View style={styles.equalizer}>
+                    <View style={[styles.eqBar, { animationDelay: '0ms' }]} />
+                    <View style={[styles.eqBar, { animationDelay: '150ms' }]} />
+                    <View style={[styles.eqBar, { animationDelay: '300ms' }]} />
+                  </View>
+                </View>
+                <Text style={styles.nowPlayingLabel}>Now Playing</Text>
+              </View>
+              <View style={styles.nowPlayingContent}>
+                {currentlyPlaying.track.imageUrl ? (
+                  <Image source={{ uri: currentlyPlaying.track.imageUrl }} style={styles.nowPlayingArt} />
+                ) : (
+                  <View style={[styles.nowPlayingArt, styles.nowPlayingArtFallback]} />
+                )}
+                <View style={styles.nowPlayingInfo}>
+                  <Text numberOfLines={1} style={styles.nowPlayingTitle}>{currentlyPlaying.track.name}</Text>
+                  <Text numberOfLines={1} style={styles.nowPlayingArtist}>
+                    {(currentlyPlaying.track.artists || []).map(a => a.name).join(', ')}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.nowPlayingTime}>
+                Just now · {new Date(currentlyPlaying.playedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.scoreGrid}>
             <View style={styles.scoreCard}>
               <Text style={styles.scoreValue}>{topTracks.length}</Text>
@@ -460,4 +524,73 @@ const styles = StyleSheet.create({
   albumArtist: { color: MUTED, fontSize: 12 },
   creator: { color: MUTED, textAlign: 'center', fontSize: 12, fontWeight: '800', marginTop: 4 },
   pressed: { opacity: 0.85 },
+  nowPlayingCard: {
+    backgroundColor: PANEL,
+    borderWidth: 1,
+    borderColor: '#285C38',
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+  },
+  nowPlayingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  nowPlayingIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  equalizer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+    height: 14,
+  },
+  eqBar: {
+    width: 3,
+    height: 8,
+    backgroundColor: '#69E58D',
+    borderRadius: 2,
+  },
+  nowPlayingLabel: {
+    color: '#69E58D',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  nowPlayingContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  nowPlayingArt: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+  },
+  nowPlayingArtFallback: {
+    backgroundColor: '#263142',
+  },
+  nowPlayingInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  nowPlayingTitle: {
+    color: TXT,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  nowPlayingArtist: {
+    color: MUTED,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  nowPlayingTime: {
+    color: MUTED,
+    fontSize: 11,
+    fontWeight: '700',
+  },
 });

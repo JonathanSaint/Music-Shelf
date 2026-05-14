@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { deleteUser, signOut } from 'firebase/auth';
@@ -5,12 +6,14 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  View,
+  View
 } from 'react-native';
+
 import { useBumpSpotifySync, useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useSpotifyConnect } from '../../hooks/useSpotifyConnect';
@@ -118,16 +121,20 @@ export default function ProfileTab() {
 
   async function handleDisconnectSpotify() {
     if (!user?.uid) return;
-    Alert.alert('Disconnect Spotify', 'Remove Spotify from Music Shelf? You can connect again anytime.', [
+    Alert.alert('Disconnect Spotify', 'Remove Spotify from Music Shelf? You can reconnect anytime.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Disconnect',
         style: 'destructive',
         onPress: async () => {
           try {
-            setProfile((p) => (p ? { ...p, spotify: null } : p));
+            // Clear local state first for immediate UI feedback
+            setProfile(null);
+            // Revoke tokens and clear server-side data
             await disconnectSpotify(user.uid);
+            // Trigger sync tick to notify other components
             bumpSync();
+            // Reload profile to confirm disconnection
             await loadProfile();
           } catch (e) {
             Alert.alert('Spotify', e?.message || String(e));
@@ -327,7 +334,24 @@ export default function ProfileTab() {
         <Text style={styles.outlineText}>Preview public profile URL</Text>
       </Pressable>
 
+      {/* Feedback Section */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Feedback</Text>
+        <Text style={styles.muted}>Have suggestions or found a bug? I'd love to hear from you.</Text>
+        <Pressable
+          onPress={() => {
+            const subject = encodeURIComponent('Music Shelf Feedback');
+            const body = encodeURIComponent('Hi Jonathan,\n\n');
+            Linking.openURL(`mailto:jarinda086@gmail.com?subject=${subject}&body=${body}`);
+          }}
+          style={({ pressed }) => [styles.feedbackBtn, pressed && styles.pressed]}>
+          <Ionicons name="mail-outline" size={18} color={TXT} />
+          <Text style={styles.feedbackText}>Send Feedback</Text>
+        </Pressable>
+      </View>
+
       <Pressable onPress={handleDeleteAccount} style={({ pressed }) => [styles.deleteAccount, pressed && styles.pressed]}>
+        <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
         <Text style={styles.deleteAccountText}>Delete Account</Text>
       </Pressable>
 
@@ -434,4 +458,16 @@ const styles = StyleSheet.create({
   thumb: { width: 44, height: 44, borderRadius: 6 },
   thumbPlaceholder: { backgroundColor: '#243246' },
   rowTitle: { color: TXT, fontWeight: '600', flex: 1 },
+  feedbackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#1A2433',
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  feedbackText: { color: TXT, fontWeight: '700', fontSize: 14 },
 });

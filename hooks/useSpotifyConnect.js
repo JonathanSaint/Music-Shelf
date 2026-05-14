@@ -1,5 +1,5 @@
+import { ResponseType, useAuthRequest } from 'expo-auth-session';
 import React from 'react';
-import { useAuthRequest, ResponseType } from 'expo-auth-session';
 import {
   exchangeSpotifyCode,
   getSpotifyRedirectUri,
@@ -36,8 +36,14 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
       redirectUri,
       responseType: ResponseType.Code,
       usePKCE: true,
-      /** Always show Spotify’s allow screen instead of silently reusing an existing browser session. */
-      extraParams: { show_dialog: 'true' },
+      /**
+       * Removed show_dialog: 'true' to allow seamless re-authentication for
+       * Apple/Google/phone-created Spotify accounts. Spotify will show the
+       * consent screen when needed.
+       */
+      extraParams: {
+        show_dialog: 'false',
+      },
     },
     spotifyDiscovery
   );
@@ -77,11 +83,24 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
           clientId: id,
           codeVerifier: verifier,
         });
+        if (!tokens?.access_token) {
+          throw new Error('Spotify returned an invalid token response. Please try again.');
+        }
         await saveSpotifyTokens(uid, tokens);
         await syncSpotifyProfileToFirestore(uid, email);
         if (!cancelled) completedRef.current?.();
       } catch (e) {
-        if (!cancelled) errorRef.current?.(e);
+        console.error('Spotify connect error:', e);
+        if (!cancelled) {
+          const errorMsg = e?.message || String(e);
+          if (/UNAUTHORIZED/i.test(errorMsg) || /401/i.test(errorMsg)) {
+            errorRef.current?.(new Error('Spotify session expired. Please reconnect.'));
+          } else if (/invalid.*code/i.test(errorMsg.toLowerCase())) {
+            errorRef.current?.(new Error('Invalid authorization code. Please try connecting again.'));
+          } else {
+            errorRef.current?.(e);
+          }
+        }
       }
     }
 

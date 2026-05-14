@@ -130,22 +130,25 @@ export default function StatsTab() {
   // Top genre should be derived from Spotify artist metadata; fallback to `spotify.genres`
   // only if we truly have no genre signals at all.
   function deriveTopGenres(spotifyProfile) {
-    const direct = Array.isArray(spotifyProfile?.genres) ? spotifyProfile.genres : [];
-    const directClean = direct.map((g) => String(g || '').trim()).filter(Boolean);
-
-    const fromArtists = [];
+    const counts = new Map();
+    
+    // Primary: Collect genres from top artists (most reliable source)
     for (const a of spotifyProfile?.topArtists || []) {
       const gs = Array.isArray(a?.genres) ? a.genres : [];
       for (const g of gs) {
         const gg = String(g || '').trim();
-        if (gg) fromArtists.push(gg);
+        if (gg) counts.set(gg, (counts.get(gg) || 0) + 1);
       }
     }
-
-    const counts = new Map();
-    const source = directClean.length ? directClean : fromArtists;
-    for (const g of source) counts.set(g, (counts.get(g) || 0) + 1);
-
+    
+    // Secondary: Use direct genres from profile if available
+    const direct = Array.isArray(spotifyProfile?.genres) ? spotifyProfile.genres : [];
+    for (const g of direct) {
+      const gg = String(g || '').trim();
+      if (gg) counts.set(gg, (counts.get(gg) || 0) + 1);
+    }
+    
+    // Sort by frequency and return top genres
     const entries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
     return entries.slice(0, 8).map(([genre]) => genre);
   }

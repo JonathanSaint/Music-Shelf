@@ -111,15 +111,23 @@ export function buildPlayStatsFromHistory(items) {
     }
   }
 
-  const topTracks = Array.from(trackCounts.entries())
+  // Build ALL tracks with play counts (not just top 20) for accurate album rankings
+  const allTracksWithCounts = Array.from(trackCounts.entries())
     .map(([id, count]) => {
       const sample = items.find((it) => it.track?.id === id)?.track;
       const base = mapApiTrackToShape(sample);
       return base ? { ...base, playCount: count, score: count } : null;
     })
     .filter(Boolean)
-    .sort((a, b) => b.playCount - a.playCount || a.name.localeCompare(b.name))
-    .slice(0, 20);
+    .sort((a, b) => b.playCount - a.playCount || a.name.localeCompare(b.name));
+
+  // Build album/ep/single rankings from ALL tracks for accurate totals
+  const albumRankings = buildReleasePlayRankings(allTracksWithCounts, 'album');
+  const epRankings = buildReleasePlayRankings(allTracksWithCounts, 'ep');
+  const singleRankings = buildReleasePlayRankings(allTracksWithCounts, 'single');
+
+  // Top tracks limited to 20 for display
+  const topTracks = allTracksWithCounts.slice(0, 20);
 
   const topArtists = Array.from(artistCounts.values())
     .sort((a, b) => b.playCount - a.playCount || a.name.localeCompare(b.name))
@@ -135,33 +143,38 @@ export function buildPlayStatsFromHistory(items) {
       score: playCount,
     }));
 
-  const albumRankings = buildReleasePlayRankings(topTracks, 'album');
-  const epRankings = buildReleasePlayRankings(topTracks, 'ep');
-  const singleRankings = buildReleasePlayRankings(topTracks, 'single');
-
   return { topTracks, topArtists, albumRankings, epRankings, singleRankings };
 }
 
 function buildReleasePlayRankings(tracksWithCounts, kind) {
   const releases = new Map();
+  
   for (const track of tracksWithCounts) {
     if (!track.albumName || releaseKindFromTrack(track) !== kind) continue;
+    
     const id = track.albumId || track.albumName;
-    const cur = releases.get(id) || {
+    
+    // Skip if we've already processed this release (prevents duplicates)
+    if (releases.has(id)) {
+      const existing = releases.get(id);
+      // Only add play count for additional tracks from same release
+      existing.playCount += track.playCount;
+      existing.trackIds.add(track.id);
+      (track.artists || []).forEach((artist) => existing.artists.add(artist.name));
+      continue;
+    }
+    
+    const cur = {
       id,
       name: track.albumName,
       imageUrl: track.imageUrl,
-      // keep both fields for backwards compatibility, but make `score` derived later
       score: 0,
-      playCount: 0,
-      trackIds: new Set(),
+      playCount: track.playCount,
+      trackIds: new Set([track.id]),
       artists: new Set(),
       kind,
     };
 
-    // Canonical release play total = summed plays of tracks in this release.
-    cur.playCount += track.playCount;
-    cur.trackIds.add(track.id);
     (track.artists || []).forEach((artist) => cur.artists.add(artist.name));
     releases.set(id, cur);
   }
