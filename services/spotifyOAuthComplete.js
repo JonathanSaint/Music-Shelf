@@ -42,6 +42,9 @@ export function mapSpotifyOAuthError(raw) {
   if (/401|unauthorized|token/i.test(msg)) {
     return 'Spotify authorization failed. Try again — if you use Apple/Google/phone sign-in for Spotify, approve the permission screen when it appears.';
   }
+  if (/user not registered|not been registered|development mode/i.test(msg)) {
+    return 'This Spotify account is not on your app allowlist yet. In Spotify Developer Dashboard → Users and Access, add their Spotify email, then try again.';
+  }
   return raw;
 }
 
@@ -61,6 +64,15 @@ export async function completeSpotifyOAuthFromCallback(explicitParams) {
   const pending = await loadPendingOAuthSession();
   if (!pending?.codeVerifier || !pending?.uid) {
     throw new Error(mapSpotifyOAuthError('Missing PKCE verifier — connect from Profile and try again.'));
+  }
+
+  const { auth } = await import('../lib/firebase');
+  const currentUid = auth.currentUser?.uid;
+  if (currentUid && pending.uid !== currentUid) {
+    await clearPendingOAuthSession();
+    throw new Error(
+      'Spotify login was started for a different Music Shelf account. Sign in with the correct email, then connect again.'
+    );
   }
 
   const clientId = pending.clientId || process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID;
