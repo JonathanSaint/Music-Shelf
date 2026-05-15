@@ -71,6 +71,32 @@ function releaseKindFromTrack(track) {
   return 'single';
 }
 
+function normalizeReleaseName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Map normalized album title → Spotify album id when any play has an id. */
+function buildAlbumIdByName(tracks = []) {
+  const map = new Map();
+  for (const track of tracks) {
+    const norm = normalizeReleaseName(track.albumName);
+    if (!norm) continue;
+    if (track.albumId) map.set(norm, track.albumId);
+  }
+  return map;
+}
+
+function releaseKeyForTrack(track, albumIdByName) {
+  const norm = normalizeReleaseName(track.albumName);
+  const id = track.albumId || albumIdByName.get(norm);
+  if (id) return `id:${id}`;
+  if (norm) return `name:${norm}`;
+  return null;
+}
+
 function mapApiTrackToShape(t) {
   if (!t?.id) return null;
   return {
@@ -121,10 +147,10 @@ export function buildPlayStatsFromHistory(items) {
     .filter(Boolean)
     .sort((a, b) => b.playCount - a.playCount || a.name.localeCompare(b.name));
 
-  // Build album/ep/single rankings from ALL tracks for accurate totals
-  const albumRankings = buildReleasePlayRankings(allTracksWithCounts, 'album');
-  const epRankings = buildReleasePlayRankings(allTracksWithCounts, 'ep');
-  const singleRankings = buildReleasePlayRankings(allTracksWithCounts, 'single');
+  // Build release rankings from raw play events (each listen counts once per release)
+  const albumRankings = buildReleasePlayRankingsFromHistory(items, 'album');
+  const epRankings = buildReleasePlayRankingsFromHistory(items, 'ep');
+  const singleRankings = buildReleasePlayRankingsFromHistory(items, 'single');
 
   // Top tracks limited to 20 for display
   const topTracks = allTracksWithCounts.slice(0, 20);
@@ -146,37 +172,42 @@ export function buildPlayStatsFromHistory(items) {
   return { topTracks, topArtists, albumRankings, epRankings, singleRankings };
 }
 
-function buildReleasePlayRankings(tracksWithCounts, kind) {
+function buildReleasePlayRankingsFromHistory(items, kind) {
+  const mappedTracks = [];
+  for (const item of items) {
+    const mapped = mapApiTrackToShape(item.track);
+    if (mapped) mappedTracks.push(mapped);
+  }
+  const albumIdByName = buildAlbumIdByName(mappedTracks);
   const releases = new Map();
-  
-  for (const track of tracksWithCounts) {
-    if (!track.albumName || releaseKindFromTrack(track) !== kind) continue;
-    
-    const id = track.albumId || track.albumName;
-    
-    // Skip if we've already processed this release (prevents duplicates)
-    if (releases.has(id)) {
-      const existing = releases.get(id);
-      // Only add play count for additional tracks from same release
-      existing.playCount += track.playCount;
-      existing.trackIds.add(track.id);
-      (track.artists || []).forEach((artist) => existing.artists.add(artist.name));
+
+  for (const item of items) {
+    const mapped = mapApiTrackToShape(item.track);
+    if (!mapped?.albumName || releaseKindFromTrack(mapped) !== kind) continue;
+
+    const key = releaseKeyForTrack(mapped, albumIdByName);
+    if (!key) continue;
+
+    const canonicalId = key.startsWith('id:') ? key.slice(3) : mapped.albumName;
+    const existing = releases.get(key);
+
+    if (existing) {
+      existing.playCount += 1;
+      if (mapped.id) existing.trackIds.add(mapped.id);
+      (mapped.artists || []).forEach((artist) => existing.artists.add(artist.name));
+      if (!existing.imageUrl && mapped.imageUrl) existing.imageUrl = mapped.imageUrl;
       continue;
     }
-    
-    const cur = {
-      id,
-      name: track.albumName,
-      imageUrl: track.imageUrl,
-      score: 0,
-      playCount: track.playCount,
-      trackIds: new Set([track.id]),
-      artists: new Set(),
-      kind,
-    };
 
-    (track.artists || []).forEach((artist) => cur.artists.add(artist.name));
-    releases.set(id, cur);
+    releases.set(key, {
+      id: canonicalId,
+      name: mapped.albumName,
+      imageUrl: mapped.imageUrl,
+      playCount: 1,
+      trackIds: new Set(mapped.id ? [mapped.id] : []),
+      artists: new Set((mapped.artists || []).map((a) => a.name)),
+      kind,
+    });
   }
 
   return Array.from(releases.values())
@@ -184,16 +215,27 @@ function buildReleasePlayRankings(tracksWithCounts, kind) {
       const { trackIds, artists, ...rest } = release;
       return {
         ...rest,
-        // Canonical release plays
         playCount: release.playCount,
-        // Keep `score` aligned with playCount so existing UI stays correct.
         score: release.playCount,
         tracks: trackIds.size,
         artists: Array.from(artists).slice(0, 2).join(', '),
       };
     })
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .sort((a, b) => b.playCount - a.playCount || a.name.localeCompare(b.name))
     .slice(0, 5);
+}
+
+function enrichArtistsWithGenres(topArtists, seedArtists = []) {
+  const genreByArtistId = new Map();
+  for (const a of seedArtists) {
+    if (a?.id && Array.isArray(a.genres) && a.genres.length) {
+      genreByArtistId.set(a.id, a.genres);
+    }
+  }
+  return topArtists.map((artist) => ({
+    ...artist,
+    genres: genreByArtistId.get(artist.id) || artist.genres || [],
+  }));
 }
 
 export async function fetchSpotifyIdentityBundle(accessToken) {
@@ -201,7 +243,7 @@ export async function fetchSpotifyIdentityBundle(accessToken) {
 
   const [me, topArtistsGenreSeed, topTracksSeed, historyItems] = await Promise.all([
     spotifyGet('/me', accessToken),
-    spotifyGet('/me/top/artists?limit=10&time_range=short_term', accessToken),
+    spotifyGet('/me/top/artists?limit=50&time_range=short_term', accessToken),
     spotifyGet('/me/top/tracks?limit=10&time_range=short_term', accessToken),
     fetchRecentlyPlayedSince(accessToken, oldest120d),
   ]);
@@ -249,6 +291,15 @@ export async function fetchSpotifyIdentityBundle(accessToken) {
   }
 
   const defaultWindow = playStatsByWindow['30'];
+  const enrichedTopArtists = enrichArtistsWithGenres(defaultWindow.topArtists, seedArtists);
+
+  for (const key of Object.keys(playStatsByWindow)) {
+    playStatsByWindow[key].topArtists = enrichArtistsWithGenres(
+      playStatsByWindow[key].topArtists,
+      seedArtists
+    );
+  }
+
   const recentlyPlayed = historyItems.slice(0, 15).map((item) => ({
     playedAt: item.played_at,
     track: mapApiTrackToShape(item.track),
@@ -259,7 +310,7 @@ export async function fetchSpotifyIdentityBundle(accessToken) {
     displayName: me.display_name || me.id,
     email: me.email || null,
     imageUrl,
-    topArtists: defaultWindow.topArtists,
+    topArtists: enrichedTopArtists,
     topTracks: defaultWindow.topTracks,
     albumRankings: defaultWindow.albumRankings,
     epRankings: defaultWindow.epRankings,

@@ -87,14 +87,30 @@ function displayStory(spotify, fallbackStory) {
   };
 }
 
+function normalizeAlbumName(name) {
+  return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function albumKeyForTrack(track, idByName) {
+  const norm = normalizeAlbumName(track.albumName);
+  const id = track.albumId || idByName.get(norm);
+  return id || norm;
+}
+
 function getAlbumRankings(topTracks = []) {
+  const idByName = new Map();
+  topTracks.forEach((track) => {
+    const norm = normalizeAlbumName(track.albumName);
+    if (norm && track.albumId) idByName.set(norm, track.albumId);
+  });
+
   const albums = new Map();
   topTracks.forEach((track, index) => {
     if (!track.albumName) return;
     const totalTracks = Number(track.albumTotalTracks || 0);
     const isAlbum = track.albumType === 'album' || (!track.albumType && (!totalTracks || totalTracks > 6));
     if (!isAlbum) return;
-    const id = track.albumId || track.albumName;
+    const id = albumKeyForTrack(track, idByName);
     const current = albums.get(id) || {
       id,
       name: track.albumName,
@@ -116,6 +132,12 @@ function getAlbumRankings(topTracks = []) {
 }
 
 function getReleaseRankings(topTracks = [], kind) {
+  const idByName = new Map();
+  topTracks.forEach((track) => {
+    const norm = normalizeAlbumName(track.albumName);
+    if (norm && track.albumId) idByName.set(norm, track.albumId);
+  });
+
   const releases = new Map();
   topTracks.forEach((track, index) => {
     if (!track.albumName) return;
@@ -123,7 +145,7 @@ function getReleaseRankings(topTracks = [], kind) {
     if (!track.albumType && !totalTracks) return;
     const releaseKind = totalTracks >= 4 && totalTracks <= 6 ? 'ep' : 'single';
     if (track.albumType === 'album' || releaseKind !== kind) return;
-    const id = track.albumId || track.albumName;
+    const id = albumKeyForTrack(track, idByName);
     const current = releases.get(id) || {
       id,
       name: track.albumName,
@@ -217,14 +239,13 @@ export default function HomeTab() {
   const [currentlyPlaying, setCurrentlyPlaying] = React.useState(null);
   const welcomeShownRef = React.useRef(false);
 
-  // Show welcome popup on first load after login
+  // Show welcome popup once after sign-in
   useEffect(() => {
-    if (user && !welcomeShownRef.current && profile?.spotify) {
+    if (user && !loading && !welcomeShownRef.current) {
       welcomeShownRef.current = true;
-      // Small delay for smoother experience
-      setTimeout(() => setShowWelcome(true), 500);
+      setTimeout(() => setShowWelcome(true), 600);
     }
-  }, [user, profile]);
+  }, [user, loading]);
 
   // Fetch currently playing track
   React.useEffect(() => {
@@ -433,7 +454,7 @@ export default function HomeTab() {
           <View style={styles.albumGrid}>
             {albums.map((album, index) => (
               <Pressable
-                key={album.id}
+                key={`${album.id || album.name}-${index}`}
                 onPress={() => router.push(`/item/album?id=${encodeURIComponent(album.id || album.name)}`)}
                 style={({ pressed }) => [styles.albumCard, pressed && styles.pressed]}>
                 <View style={styles.albumCardTop}>

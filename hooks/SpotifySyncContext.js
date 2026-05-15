@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppState, Platform } from 'react-native';
-import { syncSpotifyProfileToFirestore } from '../services/spotifyFirestore';
+import { hasSpotifySession, syncSpotifyProfileToFirestore } from '../services/spotifyFirestore';
 
 const SpotifySyncContext = React.createContext({
   syncTick: 0,
@@ -25,6 +25,8 @@ export function SpotifySyncProvider({ uid, email, children }) {
   const runBackgroundSync = React.useCallback(
     async (reason) => {
       if (!uid) return;
+      const connected = await hasSpotifySession(uid);
+      if (!connected) return;
       const now = Date.now();
       if (reason !== 'interval' && reason !== 'mount') {
         if (now - lastRunRef.current < 45_000) return;

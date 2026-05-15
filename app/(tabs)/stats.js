@@ -154,6 +154,7 @@ export default function StatsTab() {
   }
 
   const topGenres = deriveTopGenres(spotify);
+  const primaryGenre = (spotify?.genres || [])[0] || topGenres[0] || null;
   const genreRows = topGenres.map((genre, index) => ({
     label: genre,
     value: Math.max(1, 8 - index),
@@ -165,7 +166,9 @@ export default function StatsTab() {
   const maxRecent = Math.max(...recent.map((x) => x.value), 1);
   const daily = listeningDays(spotify?.recentlyPlayed || []);
   const maxDaily = Math.max(...daily.map((x) => x.value), 1);
-  const topGenre = genreRows[0];
+  const topGenre = primaryGenre
+    ? { label: primaryGenre, value: genreRows.find((g) => g.label === primaryGenre)?.value || genreRows[0]?.value || 1 }
+    : genreRows[0];
   const aiInsight = spotify?.aiInsight;
   const story = aiInsight?.story || moodStory({ genres: spotify?.genres || [], recent: spotify?.recentlyPlayed || [], tracks });
 

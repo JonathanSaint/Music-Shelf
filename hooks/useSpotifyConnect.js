@@ -1,5 +1,12 @@
 import { ResponseType, useAuthRequest } from 'expo-auth-session';
 import React from 'react';
+import { Platform } from 'react-native';
+
+import {
+  completeSpotifyOAuthFromCallback,
+  mapSpotifyOAuthError,
+} from '../services/spotifyOAuthComplete';
+import { savePendingOAuthSession } from '../services/spotifyOAuthSession';
 import {
   exchangeSpotifyCode,
   getSpotifyRedirectUri,
@@ -36,12 +43,8 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
       redirectUri,
       responseType: ResponseType.Code,
       usePKCE: true,
-      /**
-       * Use show_dialog: false to allow seamless re-authentication.
-       * Spotify will show the consent screen when needed.
-       */
       extraParams: {
-        show_dialog: false,
+        show_dialog: 'true',
       },
     },
     spotifyDiscovery
@@ -49,57 +52,56 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
 
   const handledCodeRef = React.useRef(null);
 
+  const finishWithTokens = React.useCallback(
+    async ({ code, verifier }) => {
+      const id = clientId();
+      if (!id || id === 'missing-client-id') {
+        throw new Error('Set EXPO_PUBLIC_SPOTIFY_CLIENT_ID in .env');
+      }
+      if (!verifier) {
+        throw new Error('Missing PKCE verifier — try Connect again.');
+      }
+      if (!uid) {
+        throw new Error('Not signed in');
+      }
+
+      const tokens = await exchangeSpotifyCode({
+        code,
+        redirectUri,
+        clientId: id,
+        codeVerifier: verifier,
+      });
+      if (!tokens?.access_token) {
+        throw new Error('Spotify returned an invalid token response. Please try again.');
+      }
+      await saveSpotifyTokens(uid, tokens);
+      await syncSpotifyProfileToFirestore(uid, email);
+      completedRef.current?.();
+    },
+    [redirectUri, uid, email]
+  );
+
   React.useEffect(() => {
     let cancelled = false;
 
     async function run() {
-      if (response?.type !== 'success') return;
+      if (response?.type !== 'success') {
+        if (response?.type === 'error') {
+          const errMsg = response.error?.message || response.params?.error_description || response.params?.error;
+          if (!cancelled) errorRef.current?.(new Error(mapSpotifyOAuthError(errMsg)));
+        }
+        return;
+      }
       const code = response.params?.code;
       if (!code) return;
       if (handledCodeRef.current === code) return;
       handledCodeRef.current = code;
 
-      const verifier = request?.codeVerifier;
-      const id = clientId();
-
-      if (!id || id === 'missing-client-id') {
-        errorRef.current?.(new Error('Set EXPO_PUBLIC_SPOTIFY_CLIENT_ID in .env'));
-        return;
-      }
-      if (!verifier) {
-        errorRef.current?.(new Error('Missing PKCE verifier — try Connect again.'));
-        return;
-      }
-      if (!uid) {
-        errorRef.current?.(new Error('Not signed in'));
-        return;
-      }
-
       try {
-        const tokens = await exchangeSpotifyCode({
-          code,
-          redirectUri,
-          clientId: id,
-          codeVerifier: verifier,
-        });
-        if (!tokens?.access_token) {
-          throw new Error('Spotify returned an invalid token response. Please try again.');
-        }
-        await saveSpotifyTokens(uid, tokens);
-        await syncSpotifyProfileToFirestore(uid, email);
-        if (!cancelled) completedRef.current?.();
+        await finishWithTokens({ code, verifier: request?.codeVerifier });
       } catch (e) {
         console.error('Spotify connect error:', e);
-        if (!cancelled) {
-          const errorMsg = e?.message || String(e);
-          if (/UNAUTHORIZED/i.test(errorMsg) || /401/i.test(errorMsg)) {
-            errorRef.current?.(new Error('Spotify session expired. Please reconnect.'));
-          } else if (/invalid.*code/i.test(errorMsg.toLowerCase())) {
-            errorRef.current?.(new Error('Invalid authorization code. Please try connecting again.'));
-          } else {
-            errorRef.current?.(e);
-          }
-        }
+        if (!cancelled) errorRef.current?.(new Error(mapSpotifyOAuthError(e?.message || String(e))));
       }
     }
 
@@ -107,7 +109,7 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
     return () => {
       cancelled = true;
     };
-  }, [response, request, redirectUri, uid, email]);
+  }, [response, request, finishWithTokens]);
 
   const connect = React.useCallback(async () => {
     const id = clientId();
@@ -115,10 +117,28 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
       errorRef.current?.(new Error('Set EXPO_PUBLIC_SPOTIFY_CLIENT_ID'));
       return { type: 'error' };
     }
+    if (!request?.codeVerifier) {
+      errorRef.current?.(new Error('Still preparing login — try again in a second.'));
+      return { type: 'error' };
+    }
+    if (!uid) {
+      errorRef.current?.(new Error('Sign in before connecting Spotify.'));
+      return { type: 'error' };
+    }
+
+    await savePendingOAuthSession({
+      codeVerifier: request.codeVerifier,
+      redirectUri,
+      uid,
+      email: email || null,
+      clientId: id,
+    });
+
     return promptAsync({
       preferEphemeralSession: false,
+      ...(Platform.OS === 'web' ? { windowName: 'SpotifyAuth' } : {}),
     });
-  }, [promptAsync]);
+  }, [promptAsync, request, redirectUri, uid, email]);
 
   const ready = !!request && hasClientId;
 

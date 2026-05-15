@@ -31,6 +31,11 @@ export function getSpotifyRedirectUri() {
     });
   }
 
+  // Stable origin-based URI — must match Spotify Developer Dashboard exactly.
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin.replace(/\/$/, '')}/spotify-callback`;
+  }
+
   return AuthSession.makeRedirectUri({
     scheme: 'musicshelf',
     path: 'spotify-callback',
@@ -67,7 +72,11 @@ async function spotifyTokenViaProxy(payload) {
         'Spotify on the web needs the /api/spotify-token route. Deploy the api folder (for example with Vercel), set EXPO_PUBLIC_AI_API_BASE_URL to that deployment, and add your web redirect URI in the Spotify app settings.'
       );
     }
-    throw new Error(json.error || `Spotify token proxy error (${res.status})`);
+    const detail = json.error || json.error_description || `Spotify token proxy error (${res.status})`;
+    if (res.status === 400 && /redirect/i.test(String(detail))) {
+      throw new Error(`Redirect URI mismatch: ${detail}`);
+    }
+    throw new Error(detail);
   }
   return json;
 }

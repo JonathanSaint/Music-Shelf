@@ -6,7 +6,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,7 +14,10 @@ import {
   View,
 } from 'react-native';
 
+import FeedbackModal from '../../components/FeedbackModal';
 import SpotifyProgressBar from '../../components/SpotifyProgressBar';
+import { mapSpotifyOAuthError } from '../../services/spotifyOAuthComplete';
+import { clearPendingOAuthSession } from '../../services/spotifyOAuthSession';
 import { useBumpSpotifySync, useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useSpotifyConnect } from '../../hooks/useSpotifyConnect';
@@ -43,6 +46,7 @@ export default function ProfileTab() {
   const [connectionProgress, setConnectionProgress] = React.useState(0);
   const [connectionStatus, setConnectionStatus] = React.useState('Connecting...');
   const [showProgress, setShowProgress] = React.useState(false);
+  const [feedbackOpen, setFeedbackOpen] = React.useState(false);
 
   const loadProfile = React.useCallback(async () => {
     if (!user?.uid) {
@@ -80,13 +84,14 @@ export default function ProfileTab() {
     setShowProgress(false);
     setOauthBusy(false);
     setConnectionProgress(0);
-    Alert.alert('Spotify Connection Failed', err?.message || String(err), [
+    const msg = mapSpotifyOAuthError(err?.message || String(err));
+    Alert.alert('Spotify Connection Failed', msg, [
       { text: 'Try Again', onPress: () => handleConnectSpotify() },
       { text: 'OK', style: 'cancel' },
     ]);
   }, []);
 
-  const { connect, ready, hasClientId, loadingRequest } = useSpotifyConnect({
+  const { connect, ready, hasClientId, loadingRequest, redirectUri } = useSpotifyConnect({
     uid: user?.uid,
     email: user?.email,
     onCompleted: onSpotifyDone,
@@ -171,27 +176,15 @@ export default function ProfileTab() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Show loading state
               setOauthBusy(true);
-              
-              // Clear local state first for immediate UI feedback
-              setProfile(null);
-              
-              // Revoke tokens and clear server-side data
               await disconnectSpotify(user.uid);
-              
-              // Trigger sync tick to notify other components
+              await clearPendingOAuthSession();
               bumpSync();
-              
-              // Reload profile to confirm disconnection
               await loadProfile();
-              
-              // Show success confirmation
-              Alert.alert('Disconnected', 'Spotify has been successfully disconnected from Music Shelf.', [
-                { text: 'OK' },
-              ]);
+              Alert.alert('Disconnected', 'Spotify has been disconnected. You can reconnect anytime from Profile.');
             } catch (e) {
               Alert.alert('Error', 'Failed to disconnect Spotify: ' + (e?.message || String(e)));
+              await loadProfile();
             } finally {
               setOauthBusy(false);
             }
@@ -280,6 +273,7 @@ export default function ProfileTab() {
         progress={connectionProgress}
         status={connectionStatus}
       />
+      <FeedbackModal visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
 
       <Text style={styles.h1}>Your profile</Text>
 
@@ -309,11 +303,11 @@ export default function ProfileTab() {
           ) : (
             <View style={styles.spotifyBtnInner}>
               <Text style={styles.primaryText}>
-                {!hasClientId ? 'Add Spotify Client ID' : spotify ? 'Authorize with Spotify' : 'Connect Spotify'}
+                {!hasClientId ? 'Add Spotify Client ID' : spotify ? 'Reconnect Spotify' : 'Connect Spotify'}
               </Text>
               {!!spotify && (
                 <Text style={styles.primarySub}>
-                  Signed in as {spotify.displayName} · opens Spotify to allow access
+                  Signed in as {spotify.displayName}
                 </Text>
               )}
             </View>
@@ -328,9 +322,24 @@ export default function ProfileTab() {
         </Pressable>
 
         {!!spotify && (
-          <Pressable onPress={handleDisconnectSpotify} style={({ pressed }) => [styles.disconnect, pressed && styles.pressed]}>
+          <Pressable
+            onPress={handleDisconnectSpotify}
+            disabled={oauthBusy}
+            style={({ pressed }) => [styles.disconnect, oauthBusy && styles.disabled, pressed && styles.pressed]}>
             <Text style={styles.disconnectText}>Disconnect Spotify</Text>
           </Pressable>
+        )}
+
+        {hasClientId && !!redirectUri && (
+          <View style={styles.redirectCard}>
+            <Text style={styles.redirectLabel}>Spotify redirect URI (add in Developer Dashboard)</Text>
+            <Text selectable style={styles.redirectValue}>{redirectUri}</Text>
+            {Platform.OS === 'web' && !process.env.EXPO_PUBLIC_AI_API_BASE_URL && (
+              <Text style={styles.redirectWarn}>
+                Set EXPO_PUBLIC_AI_API_BASE_URL to your deployed URL so web token exchange works.
+              </Text>
+            )}
+          </View>
         )}
       </View>
 
@@ -428,11 +437,7 @@ export default function ProfileTab() {
         <Text style={styles.sectionTitle}>Feedback</Text>
         <Text style={styles.muted}>Have suggestions or found a bug? I'd love to hear from you.</Text>
         <Pressable
-          onPress={() => {
-            const subject = encodeURIComponent('Music Shelf Feedback');
-            const body = encodeURIComponent('Hi Jonathan,\n\n');
-            Linking.openURL(`mailto:jarinda086@gmail.com?subject=${subject}&body=${body}`);
-          }}
+          onPress={() => setFeedbackOpen(true)}
           style={({ pressed }) => [styles.feedbackBtn, pressed && styles.pressed]}>
           <Ionicons name="mail-outline" size={18} color={TXT} />
           <Text style={styles.feedbackText}>Send Feedback</Text>
@@ -559,4 +564,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   feedbackText: { color: TXT, fontWeight: '700', fontSize: 14 },
+  redirectCard: {
+    backgroundColor: '#0F1623',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: 6,
+  },
+  redirectLabel: { color: MUTED, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+  redirectValue: { color: TXT, fontSize: 12, lineHeight: 17 },
+  redirectWarn: { color: '#FFD166', fontSize: 11, lineHeight: 16 },
 });

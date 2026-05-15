@@ -1,9 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { auth } from '../../lib/firebase';
+
+const SPOTIFY_MARK =
+  'https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Spotify_icon.svg/96px-Spotify_icon.svg.png';
 
 const BG = '#0B0F14';
 const CARD = '#111826';
@@ -63,6 +67,74 @@ function WaveBackground() {
       <Animated.View style={[styles.wave, styles.wave2, { transform: [{ translateX: translateX2 }] }]} />
       <Animated.View style={[styles.wave, styles.wave3, { transform: [{ translateX: translateX3 }] }]} />
     </View>
+  );
+}
+
+function FloatingSpotifyLogo({ delay, startX, size, duration, rotate }) {
+  const animatedValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(animatedValue, {
+          toValue: 1,
+          duration,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, []);
+
+  const translateY = animatedValue.interpolate({ inputRange: [0, 1], outputRange: [0, -80] });
+  const opacity = animatedValue.interpolate({
+    inputRange: [0, 0.15, 0.85, 1],
+    outputRange: [0, 0.12, 0.12, 0],
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.floatingLogo,
+        { left: startX, opacity, transform: [{ translateY }, { rotate: `${rotate}deg` }] },
+      ]}>
+      <Image source={{ uri: SPOTIFY_MARK }} style={{ width: size, height: size }} />
+    </Animated.View>
+  );
+}
+
+function FloatingMusicNote({ delay, startX, icon, duration }) {
+  const animatedValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(animatedValue, {
+          toValue: 1,
+          duration,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, []);
+
+  const translateY = animatedValue.interpolate({ inputRange: [0, 1], outputRange: [0, -90] });
+  const opacity = animatedValue.interpolate({
+    inputRange: [0, 0.2, 0.8, 1],
+    outputRange: [0, 0.25, 0.25, 0],
+  });
+
+  return (
+    <Animated.View style={[styles.floatingNote, { left: startX, opacity, transform: [{ translateY }] }]}>
+      <Ionicons name={icon} size={18} color={GREEN_LIGHT} />
+    </Animated.View>
   );
 }
 
@@ -201,6 +273,12 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}>
         {/* Background decorations */}
         <WaveBackground />
+        <FloatingSpotifyLogo delay={0} startX="8%" size={28} duration={9000} rotate={-12} />
+        <FloatingSpotifyLogo delay={2200} startX="78%" size={22} duration={11000} rotate={18} />
+        <FloatingSpotifyLogo delay={4500} startX="42%" size={18} duration={8500} rotate={8} />
+        <FloatingMusicNote delay={800} startX="22%" icon="musical-note" duration={7000} />
+        <FloatingMusicNote delay={2800} startX="68%" icon="musical-notes" duration={8000} />
+        <FloatingMusicNote delay={5200} startX="52%" icon="headset" duration={7500} />
         <FloatingParticle delay={0} startX="15%" size={6} duration={6000} />
         <FloatingParticle delay={1000} startX="75%" size={4} duration={7000} />
         <FloatingParticle delay={2000} startX="45%" size={5} duration={5500} />
@@ -399,6 +477,16 @@ const styles = StyleSheet.create({
     top: '20%',
     borderRadius: '50%',
     backgroundColor: GREEN,
+  },
+  floatingLogo: {
+    position: 'absolute',
+    top: '18%',
+    pointerEvents: 'none',
+  },
+  floatingNote: {
+    position: 'absolute',
+    top: '24%',
+    pointerEvents: 'none',
   },
   card: {
     width: '100%',

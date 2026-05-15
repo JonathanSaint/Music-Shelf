@@ -41,14 +41,38 @@ function addMovement(items = [], previousRanks) {
   });
 }
 
+function normalizeRankingName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function rankingDedupeKey(item) {
+  if (item?.id) return `id:${item.id}`;
+  const norm = normalizeRankingName(item?.name);
+  return norm ? `name:${norm}` : null;
+}
+
 function dedupeByIdOrName(items = []) {
   const seen = new Set();
+  const idByName = new Map();
   const out = [];
+
   for (const item of items) {
-    const key = item?.id || item?.name;
-    if (!key) {
+    const norm = normalizeRankingName(item?.name);
+    if (item?.id && norm) idByName.set(norm, item.id);
+  }
+
+  for (const item of items) {
+    let key = rankingDedupeKey(item);
+    if (!key && item) {
       out.push(item);
       continue;
+    }
+    const norm = normalizeRankingName(item?.name);
+    if (!item?.id && norm && idByName.has(norm)) {
+      key = `id:${idByName.get(norm)}`;
     }
     if (seen.has(key)) continue;
     seen.add(key);
@@ -107,17 +131,22 @@ export async function disconnectSpotify(uid) {
 
     // Spotify accepts token revocation via standard OAuth2 revocation semantics.
     // If the token is invalid/expired, Spotify may reject—ignore.
-    const revokeOne = async (token) => {
+    const revokeOne = async (token, hint) => {
       if (!token) return;
-      if (!cid) return; // cannot revoke without client_id
+      if (!cid) return;
+      const params = new URLSearchParams({ token, client_id: cid });
+      if (hint) params.set('token_type_hint', hint);
       await fetch(revokeEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ token, client_id: cid }).toString(),
+        body: params.toString(),
       }).catch(() => undefined);
     };
 
-    await Promise.all([revokeOne(existing?.accessToken), revokeOne(existing?.refreshToken)]);
+    await Promise.all([
+      revokeOne(existing?.refreshToken, 'refresh_token'),
+      revokeOne(existing?.accessToken, 'access_token'),
+    ]);
   } catch {
     // Never block disconnect on revocation failures.
   }
@@ -232,6 +261,12 @@ export async function ensureFreshAccessToken(uid) {
   });
 
   return refreshed.access_token;
+}
+
+export async function hasSpotifySession(uid) {
+  if (!uid) return false;
+  const tokens = await getSpotifyTokens(uid);
+  return !!(tokens?.accessToken || tokens?.refreshToken);
 }
 
 export async function syncSpotifyProfileToFirestore(uid, firebaseUserEmail) {
