@@ -37,12 +37,11 @@ export function useSpotifyConnect({ uid, email, onCompleted, onError }) {
       responseType: ResponseType.Code,
       usePKCE: true,
       /**
-       * Removed show_dialog: 'true' to allow seamless re-authentication for
-       * Apple/Google/phone-created Spotify accounts. Spotify will show the
-       * consent screen when needed.
+       * Use show_dialog: false to allow seamless re-authentication.
+       * Spotify will show the consent screen when needed.
        */
       extraParams: {
-        show_dialog: 'false',
+        show_dialog: false,
       },
     },
     spotifyDiscovery

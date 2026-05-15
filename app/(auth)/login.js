@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { auth } from '../../lib/firebase';
 
 const BG = '#0B0F14';
@@ -11,6 +11,7 @@ const TXT = '#E6EDF3';
 const MUTED = '#9AA4B2';
 const GREEN = '#1DB954';
 const GREEN_LIGHT = '#69E58D';
+const GREEN_DARK = '#14833B';
 
 function getAuthErrorMessage(error) {
   switch (error?.code) {
@@ -31,10 +32,44 @@ function getAuthErrorMessage(error) {
   }
 }
 
-// Floating music note component for background animation
-function FloatingNote({ delay, duration, startX, size, icon, opacity }) {
+// Animated background wave component
+function WaveBackground() {
+  const anim1 = useRef(new Animated.Value(0)).current;
+  const anim2 = useRef(new Animated.Value(0)).current;
+  const anim3 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animations = [anim1, anim2, anim3].map((anim, index) =>
+      Animated.loop(
+        Animated.timing(anim, {
+          toValue: 1,
+          duration: 8000 + index * 2000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        })
+      )
+    );
+    animations.forEach((anim) => anim.start());
+    return () => animations.forEach((anim) => anim.stop());
+  }, []);
+
+  const translateX1 = anim1.interpolate({ inputRange: [0, 1], outputRange: [0, 200] });
+  const translateX2 = anim2.interpolate({ inputRange: [0, 1], outputRange: [0, -150] });
+  const translateX3 = anim3.interpolate({ inputRange: [0, 1], outputRange: [0, 180] });
+
+  return (
+    <View style={styles.waveContainer}>
+      <Animated.View style={[styles.wave, styles.wave1, { transform: [{ translateX: translateX1 }] }]} />
+      <Animated.View style={[styles.wave, styles.wave2, { transform: [{ translateX: translateX2 }] }]} />
+      <Animated.View style={[styles.wave, styles.wave3, { transform: [{ translateX: translateX3 }] }]} />
+    </View>
+  );
+}
+
+// Floating particle component
+function FloatingParticle({ delay, startX, size, duration }) {
   const animatedValue = useRef(new Animated.Value(0)).current;
-  
+
   useEffect(() => {
     const animation = Animated.loop(
       Animated.sequence([
@@ -49,73 +84,88 @@ function FloatingNote({ delay, duration, startX, size, icon, opacity }) {
     );
     animation.start();
     return () => animation.stop();
-  }, [delay, duration]);
+  }, []);
 
   const translateY = animatedValue.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, -200],
+    outputRange: [0, -100],
   });
 
-  const translateX = animatedValue.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0, 30, 0],
-  });
-
-  const noteOpacity = animatedValue.interpolate({
+  const opacity = animatedValue.interpolate({
     inputRange: [0, 0.2, 0.8, 1],
-    outputRange: [0, opacity, opacity, 0],
+    outputRange: [0, 0.3, 0.3, 0],
   });
 
   return (
     <Animated.View
       style={[
-        styles.floatingNote,
+        styles.particle,
         {
           left: startX,
-          opacity: noteOpacity,
-          transform: [{ translateY }, { translateX }],
+          width: size,
+          height: size,
+          opacity,
+          transform: [{ translateY }],
         },
-      ]}>
-      <Ionicons name={icon} size={size} color={GREEN} />
-    </Animated.View>
+      ]}
+    />
   );
 }
 
 export default function LoginScreen() {
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
-  const [showPassword, setShowPassword] = React.useState(false);
-  const [mode, setMode] = React.useState('login');
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState('');
-  
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [mode, setMode] = useState('login');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
-  const scaleAnim = useRef(new Animated.Value(0.95)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     // Entrance animation
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 800,
+        duration: 1000,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 800,
+        duration: 1000,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }),
       Animated.timing(scaleAnim, {
         toValue: 1,
-        duration: 800,
-        easing: Easing.out(Easing.ease),
+        duration: 1000,
+        easing: Easing.out(Easing.back(1.1)),
         useNativeDriver: true,
       }),
     ]).start();
+
+    // Continuous glow animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, {
+          toValue: 1,
+          duration: 2000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(glowAnim, {
+          toValue: 0,
+          duration: 2000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
   }, []);
 
   async function submit() {
@@ -135,178 +185,285 @@ export default function LoginScreen() {
     }
   }
 
+  const glowOpacity = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 0.6],
+  });
+
   return (
-    <View style={styles.root}>
-      {/* Floating background elements */}
-      <FloatingNote delay={0} duration={6000} startX="10%" size={24} icon="musical-note" opacity={0.15} />
-      <FloatingNote delay={1500} duration={7000} startX="70%" size={18} icon="disc" opacity={0.1} />
-      <FloatingNote delay={3000} duration={5500} startX="40%" size={20} icon="radio" opacity={0.12} />
-      <FloatingNote delay={2000} duration={6500} startX="85%" size={16} icon="musical-notes" opacity={0.08} />
-      <FloatingNote delay={4000} duration={7500} startX="20%" size={22} icon="volume-high" opacity={0.1} />
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
+        {/* Background decorations */}
+        <WaveBackground />
+        <FloatingParticle delay={0} startX="15%" size={6} duration={6000} />
+        <FloatingParticle delay={1000} startX="75%" size={4} duration={7000} />
+        <FloatingParticle delay={2000} startX="45%" size={5} duration={5500} />
+        <FloatingParticle delay={3000} startX="85%" size={3} duration={8000} />
+        <FloatingParticle delay={1500} startX="25%" size={4} duration={6500} />
 
-      <Animated.View
-        style={[
-          styles.card,
-          {
-            opacity: fadeAnim,
-            transform: [
-              { translateY: slideAnim },
-              { scale: scaleAnim },
-            ],
-          },
-        ]}>
-        {/* Header with animated icon */}
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <Ionicons name="albums" size={40} color={GREEN} />
+        <Animated.View
+          style={[
+            styles.card,
+            {
+              opacity: fadeAnim,
+              transform: [
+                { translateY: slideAnim },
+                { scale: scaleAnim },
+              ],
+            },
+          ]}>
+          {/* Logo Section */}
+          <View style={styles.header}>
+            <Animated.View
+              style={[
+                styles.logoContainer,
+                {
+                  shadowColor: GREEN,
+                  shadowOpacity: glowOpacity,
+                  shadowRadius: 20,
+                },
+              ]}>
+              <Ionicons name="albums" size={44} color={GREEN} />
+            </Animated.View>
+            <Text style={styles.title}>Music Shelf</Text>
+            <Text style={styles.subtitle}>
+              {mode === 'login'
+                ? 'Sign in to build your music identity.'
+                : 'Create your music identity.'}
+            </Text>
           </View>
-          <Text style={styles.title}>Music Shelf</Text>
-          <Text style={styles.subtitle}>
-            {mode === 'login' 
-              ? 'Sign in to build your music identity.' 
-              : 'Create your music identity.'}
-          </Text>
-        </View>
 
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          placeholder="Email"
-          placeholderTextColor={MUTED}
-          style={styles.input}
-          value={email}
-          onChangeText={setEmail}
-          editable={!busy}
-        />
-        
-        <View style={styles.passwordContainer}>
-          <TextInput
-            placeholder="Password"
-            placeholderTextColor={MUTED}
-            secureTextEntry={!showPassword}
-            style={styles.passwordInput}
-            value={password}
-            onChangeText={setPassword}
-            editable={!busy}
-          />
-          <Pressable
-            onPress={() => setShowPassword(!showPassword)}
-            style={styles.eyeButton}
-            disabled={busy}>
-            <Ionicons
-              name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-              size={20}
-              color={MUTED}
-            />
-          </Pressable>
-        </View>
+          {/* Form Section */}
+          <View style={styles.form}>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="mail-outline" size={20} color={MUTED} style={styles.inputIcon} />
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                placeholder="Email address"
+                placeholderTextColor={MUTED}
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+                editable={!busy}
+              />
+            </View>
 
-        {!!error && <Text style={styles.error}>{error}</Text>}
+            <View style={styles.inputWrapper}>
+              <Ionicons name="lock-closed-outline" size={20} color={MUTED} style={styles.inputIcon} />
+              <TextInput
+                placeholder="Password"
+                placeholderTextColor={MUTED}
+                secureTextEntry={!showPassword}
+                style={styles.input}
+                value={password}
+                onChangeText={setPassword}
+                editable={!busy}
+              />
+              <Pressable
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeButton}
+                disabled={busy}>
+                <Ionicons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color={MUTED}
+                />
+              </Pressable>
+            </View>
 
-        <Pressable
-          disabled={busy}
-          onPress={submit}
-          style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}>
-          <Text style={styles.primaryText}>
-            {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
-          </Text>
-        </Pressable>
+            {error ? (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle-outline" size={16} color="#FF6B6B" style={styles.errorIcon} />
+                <Text style={styles.error}>{error}</Text>
+              </View>
+            ) : null}
 
-        <Pressable
-          onPress={() => {
-            setMode((m) => (m === 'signup' ? 'login' : 'signup'));
-            setError('');
-          }}
-          style={({ pressed }) => [styles.linkBtn, pressed && styles.pressed]}
-          disabled={busy}>
-          <Text style={styles.linkText}>
-            {mode === 'signup' 
-              ? 'Already have an account? Sign in' 
-              : "New here? Create an account"}
-          </Text>
-        </Pressable>
+            <Pressable
+              disabled={busy}
+              onPress={submit}
+              style={({ pressed }) => [
+                styles.primary,
+                pressed && styles.pressed,
+                busy && styles.disabled,
+              ]}>
+              <Animated.View
+                style={[
+                  styles.primaryGlow,
+                  { opacity: glowOpacity },
+                ]}
+              />
+              <Text style={styles.primaryText}>
+                {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
+              </Text>
+            </Pressable>
 
-        <Text style={styles.small}>
-          Spotify login comes next. {Platform.OS === 'web' ? 'Web uses popup redirect.' : 'Mobile uses app/browser redirect.'}
+            <Pressable
+              onPress={() => {
+                setMode((m) => (m === 'signup' ? 'login' : 'signup'));
+                setError('');
+              }}
+              style={({ pressed }) => [styles.linkBtn, pressed && styles.pressed]}
+              disabled={busy}>
+              <Text style={styles.linkText}>
+                {mode === 'signup'
+                  ? 'Already have an account? Sign in'
+                  : "New here? Create an account"}
+              </Text>
+            </Pressable>
+
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <Text style={styles.small}>
+              <Ionicons name="logo-spotify" size={14} color={GREEN} />
+              {' '}Spotify login comes next.{' '}
+              {Platform.OS === 'web' ? 'Web uses popup redirect.' : 'Mobile uses app/browser redirect.'}
+            </Text>
+          </View>
+
+          {/* Bottom decoration */}
+          <View style={styles.bottomDecoration}>
+            <View style={styles.bottomDots}>
+              <View style={styles.bottomDot} />
+              <View style={[styles.bottomDot, styles.bottomDotActive]} />
+              <View style={styles.bottomDot} />
+            </View>
+          </View>
+        </Animated.View>
+
+        {/* Footer */}
+        <Text style={styles.footer}>
+          Created by Jonathan Arinda
         </Text>
-
-        {/* Decorative bottom line */}
-        <View style={styles.bottomLine} />
-      </Animated.View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { 
-    flex: 1, 
-    backgroundColor: BG, 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    padding: 20,
-    overflow: 'hidden',
+  root: {
+    flex: 1,
+    backgroundColor: BG,
   },
-  floatingNote: {
-    position: 'absolute',
-    top: '100%',
-  },
-  card: { 
-    width: '100%', 
-    maxWidth: 420, 
-    backgroundColor: CARD, 
-    borderRadius: 20, 
-    padding: 24, 
-    gap: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  header: { alignItems: 'center', gap: 8 },
-  logoContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(29, 185, 84, 0.1)',
+  scrollContent: {
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    padding: 20,
+    minHeight: '100%',
   },
-  title: { 
-    color: TXT, 
-    fontSize: 32, 
+  waveContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+    overflow: 'hidden',
+    opacity: 0.1,
+  },
+  wave: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    borderRadius: '50%',
+    backgroundColor: GREEN,
+  },
+  wave1: {
+    top: -200,
+    left: -50,
+    opacity: 0.3,
+  },
+  wave2: {
+    top: -150,
+    left: 50,
+    opacity: 0.2,
+  },
+  wave3: {
+    top: -100,
+    left: 100,
+    opacity: 0.15,
+  },
+  particle: {
+    position: 'absolute',
+    top: '20%',
+    borderRadius: '50%',
+    backgroundColor: GREEN,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: CARD,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 30,
+    elevation: 12,
+  },
+  header: {
+    alignItems: 'center',
+    paddingTop: 32,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+  },
+  logoContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(29, 185, 84, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(29, 185, 84, 0.2)',
+  },
+  title: {
+    color: TXT,
+    fontSize: 32,
     fontWeight: '800',
     letterSpacing: -0.5,
+    marginBottom: 6,
   },
-  subtitle: { 
-    color: MUTED, 
+  subtitle: {
+    color: MUTED,
     fontSize: 15,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  form: {
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+    gap: 14,
+  },
+  inputWrapper: {
+    position: 'relative',
+  },
+  inputIcon: {
+    position: 'absolute',
+    left: 16,
+    top: '50%',
+    marginTop: -10,
+    zIndex: 1,
   },
   input: {
     backgroundColor: '#0F1623',
     borderColor: '#243246',
     borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: TXT,
-    fontSize: 16,
-  },
-  passwordContainer: {
-    position: 'relative',
-  },
-  passwordInput: {
-    backgroundColor: '#0F1623',
-    borderColor: '#243246',
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    paddingRight: 48,
+    borderRadius: 16,
+    paddingHorizontal: 48,
+    paddingVertical: 16,
     color: TXT,
     fontSize: 16,
   },
@@ -317,53 +474,103 @@ const styles = StyleSheet.create({
     marginTop: -10,
     padding: 4,
   },
-  primary: { 
-    backgroundColor: GREEN, 
-    paddingVertical: 14, 
-    borderRadius: 14, 
-    alignItems: 'center', 
-    marginTop: 4,
-    shadowColor: GREEN,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    padding: 14,
+    borderRadius: 14,
+    gap: 8,
   },
-  primaryText: { 
-    color: '#06110A', 
-    fontWeight: '800',
-    fontSize: 16,
+  errorIcon: {
+    marginTop: 2,
   },
-  linkBtn: { paddingVertical: 12, alignItems: 'center' },
-  linkText: { 
-    color: GREEN_LIGHT, 
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  error: { 
+  error: {
     color: '#FF6B6B',
     fontSize: 13,
     lineHeight: 18,
-    backgroundColor: 'rgba(255, 107, 107, 0.1)',
-    padding: 12,
-    borderRadius: 10,
+    flex: 1,
   },
-  small: { 
-    color: MUTED, 
-    fontSize: 12, 
-    marginTop: 4,
+  primary: {
+    backgroundColor: GREEN,
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  primaryGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: GREEN_LIGHT,
+    opacity: 0,
+  },
+  primaryText: {
+    color: '#06110A',
+    fontWeight: '800',
+    fontSize: 16,
+    zIndex: 1,
+  },
+  linkBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  linkText: {
+    color: GREEN_LIGHT,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginVertical: 4,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#243246',
+  },
+  dividerText: {
+    color: MUTED,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  small: {
+    color: MUTED,
+    fontSize: 12,
     textAlign: 'center',
     lineHeight: 18,
+    marginTop: 4,
   },
-  pressed: { opacity: 0.85 },
-  disabled: { opacity: 0.6 },
-  bottomLine: {
-    height: 2,
-    width: 60,
+  pressed: {
+    opacity: 0.85,
+  },
+  disabled: {
+    opacity: 0.6,
+  },
+  bottomDecoration: {
+    paddingBottom: 16,
+    alignItems: 'center',
+  },
+  bottomDots: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  bottomDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#243246',
+  },
+  bottomDotActive: {
     backgroundColor: GREEN,
-    borderRadius: 1,
-    marginTop: 8,
-    alignSelf: 'center',
-    opacity: 0.5,
+  },
+  footer: {
+    color: MUTED,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 24,
+    marginBottom: 10,
   },
 });

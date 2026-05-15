@@ -11,9 +11,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  View
+  View,
 } from 'react-native';
 
+import SpotifyProgressBar from '../../components/SpotifyProgressBar';
 import { useBumpSpotifySync, useSpotifySyncTick } from '../../hooks/SpotifySyncContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useSpotifyConnect } from '../../hooks/useSpotifyConnect';
@@ -39,6 +40,9 @@ export default function ProfileTab() {
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
   const [oauthBusy, setOauthBusy] = React.useState(false);
+  const [connectionProgress, setConnectionProgress] = React.useState(0);
+  const [connectionStatus, setConnectionStatus] = React.useState('Connecting...');
+  const [showProgress, setShowProgress] = React.useState(false);
 
   const loadProfile = React.useCallback(async () => {
     if (!user?.uid) {
@@ -62,14 +66,24 @@ export default function ProfileTab() {
   }, [loadProfile, syncTick]);
 
   const onSpotifyDone = React.useCallback(() => {
-    setOauthBusy(false);
-    bumpSync();
-    loadProfile();
+    setConnectionProgress(1);
+    setConnectionStatus('Connected successfully!');
+    setTimeout(() => {
+      setShowProgress(false);
+      setOauthBusy(false);
+      bumpSync();
+      loadProfile();
+    }, 1000);
   }, [loadProfile, bumpSync]);
 
   const onSpotifyErr = React.useCallback((err) => {
+    setShowProgress(false);
     setOauthBusy(false);
-    Alert.alert('Spotify', err?.message || String(err));
+    setConnectionProgress(0);
+    Alert.alert('Spotify Connection Failed', err?.message || String(err), [
+      { text: 'Try Again', onPress: () => handleConnectSpotify() },
+      { text: 'OK', style: 'cancel' },
+    ]);
   }, []);
 
   const { connect, ready, hasClientId, loadingRequest } = useSpotifyConnect({
@@ -88,12 +102,38 @@ export default function ProfileTab() {
       Alert.alert('Spotify', 'Still preparing login… try again in a second.');
       return;
     }
+    
+    // Start progress animation
     setOauthBusy(true);
+    setShowProgress(true);
+    setConnectionProgress(0);
+    setConnectionStatus('Opening Spotify...');
+    
+    // Animate progress
+    let currentProgress = 0;
+    const progressInterval = setInterval(() => {
+      currentProgress += 0.1;
+      if (currentProgress >= 0.7) {
+        clearInterval(progressInterval);
+        setConnectionProgress(0.7);
+        return;
+      }
+      setConnectionProgress(currentProgress);
+    }, 300);
+    
     try {
       const res = await connect();
-      if (res?.type !== 'success') setOauthBusy(false);
+      clearInterval(progressInterval);
+      if (res?.type !== 'success') {
+        setOauthBusy(false);
+        setShowProgress(false);
+        setConnectionProgress(0);
+      }
     } catch (e) {
+      clearInterval(progressInterval);
       setOauthBusy(false);
+      setShowProgress(false);
+      setConnectionProgress(0);
       Alert.alert('Spotify', e?.message || String(e));
     }
   }
@@ -121,27 +161,44 @@ export default function ProfileTab() {
 
   async function handleDisconnectSpotify() {
     if (!user?.uid) return;
-    Alert.alert('Disconnect Spotify', 'Remove Spotify from Music Shelf? You can reconnect anytime.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Disconnect',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            // Clear local state first for immediate UI feedback
-            setProfile(null);
-            // Revoke tokens and clear server-side data
-            await disconnectSpotify(user.uid);
-            // Trigger sync tick to notify other components
-            bumpSync();
-            // Reload profile to confirm disconnection
-            await loadProfile();
-          } catch (e) {
-            Alert.alert('Spotify', e?.message || String(e));
-          }
+    Alert.alert(
+      'Disconnect Spotify',
+      'Are you sure you want to disconnect Spotify from Music Shelf?\n\n• Your Spotify data will be removed\n• You can reconnect anytime\n• This will not affect your Spotify account',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Show loading state
+              setOauthBusy(true);
+              
+              // Clear local state first for immediate UI feedback
+              setProfile(null);
+              
+              // Revoke tokens and clear server-side data
+              await disconnectSpotify(user.uid);
+              
+              // Trigger sync tick to notify other components
+              bumpSync();
+              
+              // Reload profile to confirm disconnection
+              await loadProfile();
+              
+              // Show success confirmation
+              Alert.alert('Disconnected', 'Spotify has been successfully disconnected from Music Shelf.', [
+                { text: 'OK' },
+              ]);
+            } catch (e) {
+              Alert.alert('Error', 'Failed to disconnect Spotify: ' + (e?.message || String(e)));
+            } finally {
+              setOauthBusy(false);
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   }
 
   async function doLogout() {
@@ -152,35 +209,60 @@ export default function ProfileTab() {
   async function handleDeleteAccount() {
     Alert.alert(
       'Delete Account',
-      'This will permanently delete your account and all saved data from Music Shelf. This cannot be undone.',
+      '⚠️ This action cannot be undone.\n\nDeleting your account will:\n• Remove all your Music Shelf data\n• Delete your Spotify connection\n• Remove your listening history\n\nAre you sure you want to proceed?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete account',
+          text: 'Delete Forever',
           style: 'destructive',
           onPress: async () => {
             const currentUser = auth.currentUser;
             if (!currentUser) {
-              Alert.alert('Delete Account', 'You are not signed in.');
+              Alert.alert('Error', 'You are not signed in.');
               return;
             }
 
             try {
+              // Show loading
+              setOauthBusy(true);
+              
+              // Delete Spotify data first
               await deleteSpotifyUserData(currentUser.uid);
+              
+              // Delete Firebase user document
               await deleteFirebaseUserDoc(currentUser.uid);
+              
+              // Delete the auth user
               await deleteUser(currentUser);
+              
+              // Sign out
               await signOut(auth);
-              router.replace('/(auth)/login');
+              
+              // Show success message before redirecting
+              Alert.alert(
+                'Account Deleted',
+                'Your account has been permanently deleted. We\'re sorry to see you go.',
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => {
+                      setOauthBusy(false);
+                      router.replace('/(auth)/login');
+                    },
+                  },
+                ]
+              );
             } catch (e) {
+              setOauthBusy(false);
               const msg = e?.message || String(e);
 
               if (/requires-recent-login/i.test(msg) || /recent login/i.test(msg)) {
-                Alert.alert('Delete Account', 'For security, please sign in again and try deletion once more.');
+                Alert.alert('Security Check', 'For security, please sign in again and try deletion once more.');
                 router.replace('/(auth)/login');
                 return;
               }
 
-              Alert.alert('Delete Account', msg);
+              Alert.alert('Error', 'Failed to delete account: ' + msg);
             }
           },
         },
@@ -192,6 +274,13 @@ export default function ProfileTab() {
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      {/* Spotify Connection Progress Bar */}
+      <SpotifyProgressBar
+        isVisible={showProgress}
+        progress={connectionProgress}
+        status={connectionStatus}
+      />
+
       <Text style={styles.h1}>Your profile</Text>
 
       <View style={styles.card}>
