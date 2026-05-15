@@ -3,14 +3,18 @@ import { Platform } from 'react-native';
 
 import { auth } from '../lib/firebase';
 
+/** Minimum scopes for rankings, stats, and profile sync (Spotify review-friendly). */
 export const SPOTIFY_SCOPES = [
   'user-read-email',
-  'user-read-private',
   'user-top-read',
   'user-read-recently-played',
-  'user-read-playback-state',
-  'user-read-currently-playing',
 ];
+
+export const SPOTIFY_SCOPE_LABELS = {
+  'user-read-email': 'Email address (if available on your Spotify account)',
+  'user-top-read': 'Top artists and tracks (short term)',
+  'user-read-recently-played': 'Recently played listening history',
+};
 
 export const spotifyDiscovery = {
   authorizationEndpoint: 'https://accounts.spotify.com/authorize',

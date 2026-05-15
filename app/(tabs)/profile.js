@@ -25,6 +25,7 @@ import { useSpotifyConnect } from '../../hooks/useSpotifyConnect';
 import { auth } from '../../lib/firebase';
 import { generateMusicInsight } from '../../services/musicInsight';
 import { deleteFirebaseUserDoc, deleteSpotifyUserData, disconnectSpotify, getPublicProfile, saveMusicInsight, syncSpotifyProfileToFirestore } from '../../services/spotifyFirestore';
+import { SPOTIFY_SCOPE_LABELS, SPOTIFY_SCOPES } from '../../services/spotifyAuth';
 
 const BG = '#0B0F14';
 const CARD = '#111826';
@@ -353,12 +354,25 @@ export default function ProfileTab() {
           </Pressable>
         )}
 
+        <View style={styles.dataCard}>
+          <Text style={styles.redirectLabel}>Spotify permissions we request</Text>
+          {SPOTIFY_SCOPES.map((scope) => (
+            <View key={scope} style={styles.scopeRow}>
+              <Ionicons name="checkmark-circle" size={14} color={GREEN} />
+              <Text style={styles.scopeText}>{SPOTIFY_SCOPE_LABELS[scope] || scope}</Text>
+            </View>
+          ))}
+          <Text style={styles.redirectHint}>
+            We only read data to power your rankings and stats. Disconnect anytime below. See Privacy Policy for details.
+          </Text>
+        </View>
+
         {hasClientId && !!redirectUri && (
           <View style={styles.redirectCard}>
             <Text style={styles.redirectLabel}>Spotify redirect URI (add in Developer Dashboard)</Text>
             <Text selectable style={styles.redirectValue}>{redirectUri}</Text>
             <Text style={styles.redirectHint}>
-              Other Spotify accounts: in Developer Dashboard → Users and Access, add each tester’s Spotify email (Development mode). This is not about which account is signed into the dashboard.
+              Development mode: add each tester in Dashboard → Users and Access (up to 5). Extended quota is required for public launch.
             </Text>
           </View>
         )}
@@ -452,6 +466,25 @@ export default function ProfileTab() {
       <Pressable onPress={() => router.push(`/profile/${user?.uid || 'demo'}`)} style={({ pressed }) => [styles.outline, pressed && styles.pressed]}>
         <Text style={styles.outlineText}>Preview public profile URL</Text>
       </Pressable>
+
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Legal</Text>
+        <Text style={styles.muted}>Transparency for Spotify review and your peace of mind.</Text>
+        <Pressable
+          onPress={() => router.push('/legal/privacy')}
+          style={({ pressed }) => [styles.legalRow, styles.legalRowFirst, pressed && styles.pressed]}>
+          <Ionicons name="shield-checkmark-outline" size={18} color={TXT} />
+          <Text style={styles.legalRowText}>Privacy Policy</Text>
+          <Ionicons name="chevron-forward" size={16} color={MUTED} />
+        </Pressable>
+        <Pressable
+          onPress={() => router.push('/legal/terms')}
+          style={({ pressed }) => [styles.legalRow, pressed && styles.pressed]}>
+          <Ionicons name="document-text-outline" size={18} color={TXT} />
+          <Text style={styles.legalRowText}>Terms of Service</Text>
+          <Ionicons name="chevron-forward" size={16} color={MUTED} />
+        </Pressable>
+      </View>
 
       {/* Feedback Section */}
       <View style={styles.card}>
@@ -588,6 +621,26 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   feedbackText: { color: TXT, fontWeight: '700', fontSize: 14 },
+  dataCard: {
+    backgroundColor: '#0F1623',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: 8,
+  },
+  scopeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  scopeText: { color: TXT, fontSize: 12, lineHeight: 17, flex: 1 },
+  legalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+  },
+  legalRowFirst: { borderTopWidth: 0, marginTop: 4 },
+  legalRowText: { color: TXT, fontWeight: '700', flex: 1 },
   redirectCard: {
     backgroundColor: '#0F1623',
     borderRadius: 12,

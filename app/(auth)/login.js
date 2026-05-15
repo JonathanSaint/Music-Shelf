@@ -420,10 +420,17 @@ export default function LoginScreen() {
           </View>
         </Animated.View>
 
-        {/* Footer */}
-        <Text style={styles.footer}>
-          Created by Jonathan Arinda
-        </Text>
+        <View style={styles.legalFooter}>
+          <Pressable onPress={() => router.push('/legal/privacy')} style={({ pressed }) => pressed && styles.pressed}>
+            <Text style={styles.legalLink}>Privacy</Text>
+          </Pressable>
+          <Text style={styles.legalDot}>·</Text>
+          <Pressable onPress={() => router.push('/legal/terms')} style={({ pressed }) => pressed && styles.pressed}>
+            <Text style={styles.legalLink}>Terms</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.footer}>Created by Jonathan Arinda</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -654,11 +661,20 @@ const styles = StyleSheet.create({
   bottomDotActive: {
     backgroundColor: GREEN,
   },
+  legalFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 20,
+  },
+  legalLink: { color: GREEN_LIGHT, fontSize: 12, fontWeight: '700' },
+  legalDot: { color: MUTED, fontSize: 12 },
   footer: {
     color: MUTED,
     fontSize: 12,
     textAlign: 'center',
-    marginTop: 24,
+    marginTop: 10,
     marginBottom: 10,
   },
 });

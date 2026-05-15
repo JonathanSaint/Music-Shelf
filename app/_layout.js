@@ -31,6 +31,8 @@ export default function RootLayout() {
         <Stack.Screen name="item/[kind]" />
         <Stack.Screen name="profile/[id]" />
         <Stack.Screen name="spotify-callback" />
+        <Stack.Screen name="legal/privacy" />
+        <Stack.Screen name="legal/terms" />
       </Stack>
       </SpotifySyncGate>
       <StatusBar style="light" />
